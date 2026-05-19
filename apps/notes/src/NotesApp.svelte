@@ -1,0 +1,1853 @@
+<script lang="ts">
+  import { onDestroy } from 'svelte'
+  import type { DesignTokens } from '@og-suite/contracts'
+  import { applyUpdates, createDocumentState, createTextDiffUpdate, decodeYUpdate, encodeYUpdate, hydrateYDoc } from '@og-suite/crdt'
+  import type { CrdtDocumentState, CrdtUpdate, Note, NoteFolder, PresencePeer, SyncEnvelope } from '@og-suite/contracts'
+  import type { RuntimeServices } from '@og-suite/runtime'
+  import { bootstrapWorkspace, flushQueuedOperations, mergeEnvelope, pullChanges, queueOperation } from '@og-suite/sync'
+  import { Editor, Extension } from '@tiptap/core'
+  import StarterKit from '@tiptap/starter-kit'
+  import Collaboration from '@tiptap/extension-collaboration'
+  import Underline from '@tiptap/extension-underline'
+  import Link from '@tiptap/extension-link'
+  import Image from '@tiptap/extension-image'
+  import TextAlign from '@tiptap/extension-text-align'
+  import { Table } from '@tiptap/extension-table'
+  import TableRow from '@tiptap/extension-table-row'
+  import TableHeader from '@tiptap/extension-table-header'
+  import TableCell from '@tiptap/extension-table-cell'
+  import { TextStyle } from '@tiptap/extension-text-style'
+  import FontFamily from '@tiptap/extension-font-family'
+  import Color from '@tiptap/extension-color'
+  import Highlight from '@tiptap/extension-highlight'
+  import DOMPurify from 'dompurify'
+  import { marked } from 'marked'
+  import TurndownService from 'turndown'
+  import * as Y from 'yjs'
+  import Icon from '@og-suite/ui/Icon'
+  import { applyTokens, saveStoredTokens } from '@og-suite/ui'
+  import AppearanceSettings from './AppearanceSettings.svelte'
+
+  type EditorRenderMode = 'text' | 'markdown' | 'rich'
+  type SaveIndicatorState = 'saved' | 'pending' | 'syncing' | 'offline'
+  type SuiteNavItem = {
+    id: string
+    name: string
+    disabled?: boolean
+  }
+
+  export let services: RuntimeServices
+  export let mode: 'suite' | 'standalone' = 'standalone'
+  export let suiteNavItems: SuiteNavItem[] = []
+  export let activeSuiteAppId = ''
+  export let onSuiteAppSelect: ((appId: string) => void) | undefined = undefined
+  export let onOpenSuiteSettings: (() => void) | undefined = undefined
+
+  let envelope: SyncEnvelope | null = null
+  let selectedNoteId = ''
+  let editorText = ''
+  let lastSavedEditorText = ''
+  let draftTitle = ''
+  let draftPath = '/'
+  let status = 'Starting'
+  let peers: PresencePeer[] = []
+  let sequence = 1
+  let unsubscribePresence: (() => void) | null = null
+  let unsubscribeDocumentUpdates: (() => void) | null = null
+  let saveTimer: ReturnType<typeof setTimeout> | null = null
+  let flushTimer: ReturnType<typeof setTimeout> | null = null
+  let pullTimer: ReturnType<typeof setInterval> | null = null
+  let settingsOpen = false
+  let tokens = services.tokens
+  let editorElement: HTMLTextAreaElement | null = null
+  let richEditorElement: HTMLDivElement | null = null
+  let richEditor: Editor | null = null
+  let richYDoc: Y.Doc | null = null
+  let richDocumentId = ''
+  let richPendingUpdates: Uint8Array[] = []
+  let richUpdateTimer: ReturnType<typeof setTimeout> | null = null
+  let richFlushInFlight = false
+  let richActiveStateVersion = 0
+  let uploadInputElement: HTMLInputElement | null = null
+  let textColor = '#edf5fb'
+  let highlightColor = '#fff2a8'
+  let tableMenuOpen = false
+  let richTableMenuStyle = ''
+  let searchOpen = false
+  let searchQuery = ''
+  let activeFolderPath = '/'
+  let selectedFolderPath = ''
+  let draggedNoteId = ''
+  let draggedFolderPath = ''
+  let dragTargetPath = ''
+  let lastDragTargetPath = ''
+  let touchDragActive = false
+  let touchDragSuppressClick = false
+  let touchPressTimer: ReturnType<typeof setTimeout> | null = null
+  let touchPressStartX = 0
+  let touchPressStartY = 0
+  let touchPressSource:
+    | { kind: 'note'; id: string }
+    | { kind: 'folder'; path: string }
+    | null = null
+  let collapsedFolderPaths: string[] = []
+  let mobileFilesOpen = false
+  let sidebarWidth = 280
+  let resizingSidebar = false
+  let editorRenderMode: EditorRenderMode = loadEditorRenderMode()
+  const turndown = new TurndownService({ headingStyle: 'atx', codeBlockStyle: 'fenced' })
+
+  marked.use({
+    async: false,
+    gfm: true,
+    breaks: false,
+  })
+
+  $: notes = envelope?.notes.filter((note) => !note.deletedAt) ?? []
+  $: noteFolders = envelope?.noteFolders?.filter((folder) => !folder.deletedAt) ?? []
+  $: filteredNotes = searchQuery.trim()
+    ? notes.filter((note) => `${note.title} ${note.path}`.toLowerCase().includes(searchQuery.trim().toLowerCase()))
+    : notes
+  $: folderPaths = Array.from(
+    new Set(
+      [
+        ...noteFolders
+          .filter((folder) => folderMatchesSearch(folder))
+          .map((folder) => normalizeFolderPath(folder.path))
+          .filter((path) => path !== '/'),
+        ...filteredNotes
+          .map((note) => normalizeFolderPath(note.path))
+          .filter((path) => path !== '/'),
+      ],
+    ),
+  ).sort((left, right) => left.localeCompare(right))
+  $: rootNotes = filteredNotes.filter((note) => normalizeFolderPath(note.path) === '/')
+  $: folderGroups = folderPaths.map((folder) => ({
+    path: folder,
+    notes: filteredNotes.filter((note) => normalizeFolderPath(note.path) === folder),
+  }))
+  $: selectedNote = notes.find((note) => note.id === selectedNoteId) ?? notes[0] ?? null
+  $: selectedFolderNotes = selectedFolderPath
+    ? notes.filter((note) => isSameOrNestedPath(normalizeFolderPath(note.path), selectedFolderPath))
+    : []
+  $: selectedFolderFolders = selectedFolderPath
+    ? noteFolders.filter((folder) => isSameOrNestedPath(normalizeFolderPath(folder.path), selectedFolderPath))
+    : []
+  $: selectedFolderCanDelete = selectedFolderPath !== '' && selectedFolderPath !== '/' && (selectedFolderNotes.length > 0 || selectedFolderFolders.length > 0)
+  $: selectedDocument = selectedNote ? envelope?.documents.find((doc) => doc.id === selectedNote.documentId) ?? null : null
+  $: renderedMarkdown = editorRenderMode === 'markdown' ? renderMarkdown(editorText) : ''
+  $: if (editorRenderMode === 'rich' && selectedNote && selectedDocument && richEditorElement) {
+    ensureRichEditor()
+  }
+  $: if (editorRenderMode !== 'rich' && richEditor) {
+    exportRichEditorToMarkdown()
+    destroyRichEditor()
+  }
+
+  $: if (selectedNote && selectedNote.id !== selectedNoteId) {
+    selectNote(selectedNote)
+  }
+  $: saveIndicatorState = getSaveIndicatorState(status)
+  $: saveIndicatorLabel = saveIndicatorState === 'saved'
+    ? 'Saved'
+    : saveIndicatorState === 'syncing'
+      ? 'Syncing'
+      : saveIndicatorState === 'pending'
+        ? 'Saving'
+        : 'Offline'
+
+  function getSaveIndicatorState(currentStatus: string): SaveIndicatorState {
+    if (currentStatus.toLowerCase().includes('offline')) return 'offline'
+    if (flushTimer || richFlushInFlight) return 'syncing'
+    if (saveTimer || richUpdateTimer || richPendingUpdates.length > 0) return 'pending'
+    return 'saved'
+  }
+
+  async function start() {
+    applyTokens(services.tokens)
+    await discardLegacyQueuedDocumentUpdates()
+    envelope = await bootstrapWorkspace(services)
+    await tryFlushAndPull()
+    if (notes[0]) selectNote(notes[0])
+    startRemotePullFallback()
+    status = mode === 'suite' ? 'Loaded in Suite' : 'Loaded standalone'
+  }
+
+  async function discardLegacyQueuedDocumentUpdates() {
+    const queued = await services.syncQueue.list()
+    const legacyDocumentUpdateIds = queued
+      .filter((item) => item.operation.kind === 'append_document_update' && item.operation.update.clientSchemaVersion !== 2)
+      .map((item) => item.id)
+    if (legacyDocumentUpdateIds.length > 0) {
+      await services.syncQueue.remove(legacyDocumentUpdateIds)
+      status = `Cleared ${legacyDocumentUpdateIds.length} legacy queued edit${legacyDocumentUpdateIds.length === 1 ? '' : 's'}`
+    }
+  }
+
+  async function tryFlushAndPull() {
+    try {
+      envelope = await flushQueuedOperations(services)
+      envelope = await pullChanges(services)
+      refreshSelectedEditorFromEnvelope()
+      await refreshSelectedDocumentFromServer()
+    } catch {
+      status = 'Offline, saving locally'
+    }
+  }
+
+  function selectNote(note: Note) {
+    if (saveTimer) {
+      clearTimeout(saveTimer)
+      saveTimer = null
+    }
+    selectedNoteId = note.id
+    selectedFolderPath = ''
+    draftTitle = note.title
+    draftPath = note.path
+    const document = envelope?.documents.find((item) => item.id === note.documentId)
+    editorText = document ? applyUpdates(document).text : ''
+    lastSavedEditorText = editorText
+    destroyRichEditor()
+    unsubscribePresence?.()
+    unsubscribeDocumentUpdates?.()
+    unsubscribePresence = services.presence.connect(note.documentId, (nextPeers) => {
+      peers = nextPeers.filter((peer) => peer.clientId !== services.clientId)
+    })
+    unsubscribeDocumentUpdates = services.documentUpdates.connect(note.documentId, applyRemoteDocumentUpdate)
+    void refreshSelectedDocumentFromServer(note.documentId)
+    mobileFilesOpen = false
+  }
+
+  function selectSuiteApp(appId: string) {
+    onSuiteAppSelect?.(appId)
+    mobileFilesOpen = false
+  }
+
+  function openSuiteSettings() {
+    onOpenSuiteSettings?.()
+    mobileFilesOpen = false
+  }
+
+  async function createNote(path = activeFolderPath) {
+    const folderPath = normalizeFolderPath(path)
+    const now = new Date().toISOString()
+    const noteId = crypto.randomUUID()
+    const documentId = crypto.randomUUID()
+    const note: Note = {
+      id: noteId,
+      documentId,
+      title: 'Untitled note',
+      path: folderPath,
+      tags: [],
+      ownerId: 'local-user',
+      workspaceId: 'default',
+      createdAt: now,
+      updatedAt: now,
+    }
+    const document = createDocumentState(documentId, 'note', '')
+    await queueOperation(services, { kind: 'create_note', note, document })
+    envelope = await services.cache.loadEnvelope()
+    selectNote(note)
+    status = 'Created locally'
+  }
+
+  async function createNoteFromUpload(file: File, text: string) {
+    const now = new Date().toISOString()
+    const noteId = crypto.randomUUID()
+    const documentId = crypto.randomUUID()
+    const title = file.name.replace(/\.(md|txt)$/i, '') || 'Uploaded note'
+    const note: Note = {
+      id: noteId,
+      documentId,
+      title,
+      path: normalizeFolderPath(activeFolderPath),
+      tags: [],
+      ownerId: 'local-user',
+      workspaceId: 'default',
+      createdAt: now,
+      updatedAt: now,
+    }
+    const document = createDocumentState(documentId, 'note', text)
+    await queueOperation(services, { kind: 'create_note', note, document })
+    envelope = await services.cache.loadEnvelope()
+    selectNote(note)
+    status = `Uploaded ${file.name}`
+  }
+
+  async function saveMetadata() {
+    if (!selectedNote) return
+    const updated: Note = {
+      ...selectedNote,
+      title: draftTitle.trim() || 'Untitled note',
+      path: draftPath.trim() || '/',
+      updatedAt: new Date().toISOString(),
+    }
+    await queueOperation(services, { kind: 'update_note_metadata', note: updated })
+    envelope = await services.cache.loadEnvelope()
+    status = 'Metadata queued'
+  }
+
+  async function moveNoteToFolder(noteId: string, path: string) {
+    const note = notes.find((item) => item.id === noteId)
+    if (!note) return
+    const nextPath = normalizeFolderPath(path)
+    if (normalizeFolderPath(note.path) === nextPath) return
+    const updated: Note = {
+      ...note,
+      path: nextPath,
+      updatedAt: new Date().toISOString(),
+    }
+    await queueOperation(services, { kind: 'update_note_metadata', note: updated })
+    envelope = await services.cache.loadEnvelope()
+    if (selectedNoteId === noteId) draftPath = nextPath
+    activeFolderPath = nextPath
+    status = `Moved to ${nextPath}`
+  }
+
+  async function moveFolderToFolder(folderPath: string, targetPath: string) {
+    const sourcePath = normalizeFolderPath(folderPath)
+    const destinationPath = normalizeFolderPath(targetPath)
+    if (sourcePath === '/' || sourcePath === destinationPath || destinationPath.startsWith(`${sourcePath}/`)) return
+
+    const movedPath = normalizeFolderPath(`${destinationPath}/${folderName(sourcePath)}`)
+    if (movedPath === sourcePath) return
+
+    const now = new Date().toISOString()
+    const affectedFolders = noteFolders.filter((folder) => {
+      const currentPath = normalizeFolderPath(folder.path)
+      return currentPath === sourcePath || currentPath.startsWith(`${sourcePath}/`)
+    })
+    const affectedNotes = notes.filter((note) => {
+      const currentPath = normalizeFolderPath(note.path)
+      return currentPath === sourcePath || currentPath.startsWith(`${sourcePath}/`)
+    })
+
+    for (const folder of affectedFolders) {
+      const currentPath = normalizeFolderPath(folder.path)
+      const nextPath = remapPath(currentPath, sourcePath, movedPath)
+      await queueOperation(services, {
+        kind: 'create_note_folder',
+        folder: {
+          ...folder,
+          path: nextPath,
+          name: folderName(nextPath),
+          updatedAt: now,
+        },
+      })
+    }
+
+    for (const note of affectedNotes) {
+      await queueOperation(services, {
+        kind: 'update_note_metadata',
+        note: {
+          ...note,
+          path: remapPath(normalizeFolderPath(note.path), sourcePath, movedPath),
+          updatedAt: now,
+        },
+      })
+    }
+
+    envelope = await services.cache.loadEnvelope()
+    if (activeFolderPath === sourcePath || activeFolderPath.startsWith(`${sourcePath}/`)) {
+      activeFolderPath = remapPath(activeFolderPath, sourcePath, movedPath)
+    }
+    if (selectedNote && (draftPath === sourcePath || draftPath.startsWith(`${sourcePath}/`))) {
+      draftPath = remapPath(draftPath, sourcePath, movedPath)
+    }
+    status = `Moved folder to ${destinationPath}`
+  }
+
+  function startNoteDrag(event: DragEvent, note: Note) {
+    draggedNoteId = note.id
+    draggedFolderPath = ''
+    lastDragTargetPath = ''
+    event.dataTransfer?.setData('text/plain', note.id)
+    event.dataTransfer?.setData('application/x-og-note-id', note.id)
+    if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move'
+  }
+
+  function startMobileNotePress(event: PointerEvent, note: Note) {
+    startMobileTreePress(event, { kind: 'note', id: note.id })
+  }
+
+  function startMobileFolderPress(event: PointerEvent, path: string) {
+    startMobileTreePress(event, { kind: 'folder', path: normalizeFolderPath(path) })
+  }
+
+  function startMobileTreePress(
+    event: PointerEvent,
+    source: { kind: 'note'; id: string } | { kind: 'folder'; path: string },
+  ) {
+    if (event.pointerType === 'mouse' || event.button !== 0) return
+    clearMobileTreePress()
+    touchPressSource = source
+    touchPressStartX = event.clientX
+    touchPressStartY = event.clientY
+    ;(event.currentTarget as HTMLElement | null)?.setPointerCapture?.(event.pointerId)
+    touchPressTimer = setTimeout(() => {
+      touchDragActive = true
+      touchDragSuppressClick = true
+      if (source.kind === 'note') {
+        draggedNoteId = source.id
+        draggedFolderPath = ''
+      } else {
+        draggedNoteId = ''
+        draggedFolderPath = source.path
+      }
+      updateMobileDragTarget(event.clientX, event.clientY)
+      status = source.kind === 'note' ? 'Move note to a folder' : 'Move folder'
+    }, 420)
+  }
+
+  function moveMobileTreePress(event: PointerEvent) {
+    if (!touchPressSource) return
+    const movedDistance = Math.hypot(event.clientX - touchPressStartX, event.clientY - touchPressStartY)
+    if (!touchDragActive && movedDistance > 10) {
+      clearMobileTreePress()
+      return
+    }
+    if (!touchDragActive) return
+    event.preventDefault()
+    updateMobileDragTarget(event.clientX, event.clientY)
+  }
+
+  async function endMobileTreePress(event: PointerEvent) {
+    const wasActive = touchDragActive
+    if (wasActive) updateMobileDragTarget(event.clientX, event.clientY)
+    const targetPath = dragTargetPath
+    const source = touchPressSource
+    clearMobileTreePress(false)
+    if (!wasActive || !source || !targetPath) return
+    event.preventDefault()
+    event.stopPropagation()
+    if (source.kind === 'note') await moveNoteToFolder(source.id, targetPath)
+    if (source.kind === 'folder') await moveFolderToFolder(source.path, targetPath)
+    draggedNoteId = ''
+    draggedFolderPath = ''
+    dragTargetPath = ''
+    lastDragTargetPath = ''
+  }
+
+  function cancelMobileTreePress() {
+    clearMobileTreePress()
+  }
+
+  function clearMobileTreePress(clearSuppressClick = true) {
+    if (touchPressTimer) {
+      clearTimeout(touchPressTimer)
+      touchPressTimer = null
+    }
+    touchPressSource = null
+    touchDragActive = false
+    draggedNoteId = ''
+    draggedFolderPath = ''
+    dragTargetPath = ''
+    lastDragTargetPath = ''
+    if (clearSuppressClick) touchDragSuppressClick = false
+  }
+
+  function updateMobileDragTarget(clientX: number, clientY: number) {
+    const target = document.elementFromPoint(clientX, clientY)?.closest<HTMLElement>('[data-folder-drop-target]')
+    const targetPath = normalizeFolderPath(target?.dataset.folderDropTarget ?? '')
+    if (!target || !targetPath) {
+      dragTargetPath = ''
+      return
+    }
+    if (draggedFolderPath && (targetPath === draggedFolderPath || targetPath.startsWith(`${draggedFolderPath}/`))) {
+      dragTargetPath = ''
+      return
+    }
+    dragTargetPath = targetPath
+    lastDragTargetPath = targetPath
+  }
+
+  function handleNoteRowClick(event: MouseEvent, note: Note) {
+    if (touchDragSuppressClick) {
+      event.preventDefault()
+      event.stopPropagation()
+      touchDragSuppressClick = false
+      return
+    }
+    selectNote(note)
+  }
+
+  function handleFolderRowClick(event: MouseEvent, path: string) {
+    if (touchDragSuppressClick) {
+      event.preventDefault()
+      event.stopPropagation()
+      touchDragSuppressClick = false
+      return
+    }
+    selectFolder(path)
+  }
+
+  function selectFolder(path: string) {
+    const normalized = normalizeFolderPath(path)
+    activeFolderPath = normalized
+    selectedFolderPath = normalized === '/' ? '' : normalized
+  }
+
+  function startFolderDrag(event: DragEvent, path: string) {
+    draggedFolderPath = normalizeFolderPath(path)
+    draggedNoteId = ''
+    lastDragTargetPath = ''
+    event.dataTransfer?.setData('text/plain', draggedFolderPath)
+    event.dataTransfer?.setData('application/x-og-folder-path', draggedFolderPath)
+    if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move'
+  }
+
+  function allowFolderDrop(event: DragEvent, path: string) {
+    const transferTypes = event.dataTransfer ? Array.from(event.dataTransfer.types) : []
+    const hasDraggedEntity =
+      Boolean(draggedNoteId || draggedFolderPath) ||
+      transferTypes.includes('application/x-og-note-id') ||
+      transferTypes.includes('application/x-og-folder-path')
+    if (!hasDraggedEntity) return
+    const targetPath = normalizeFolderPath(path)
+    if (draggedFolderPath && (targetPath === draggedFolderPath || targetPath.startsWith(`${draggedFolderPath}/`))) return
+    event.preventDefault()
+    dragTargetPath = targetPath
+    lastDragTargetPath = targetPath
+    if (event.dataTransfer) event.dataTransfer.dropEffect = 'move'
+  }
+
+  async function dropNoteOnFolder(event: DragEvent, path: string) {
+    event.preventDefault()
+    event.stopPropagation()
+    const noteId = event.dataTransfer?.getData('application/x-og-note-id') || draggedNoteId
+    const folderPath = event.dataTransfer?.getData('application/x-og-folder-path') || draggedFolderPath
+    draggedNoteId = ''
+    draggedFolderPath = ''
+    dragTargetPath = ''
+    lastDragTargetPath = ''
+    if (noteId) await moveNoteToFolder(noteId, path)
+    if (folderPath) await moveFolderToFolder(folderPath, path)
+  }
+
+  async function endNoteDrag() {
+    const noteId = draggedNoteId
+    const folderPath = draggedFolderPath
+    const targetPath = dragTargetPath || lastDragTargetPath
+    draggedNoteId = ''
+    draggedFolderPath = ''
+    dragTargetPath = ''
+    lastDragTargetPath = ''
+    if (!targetPath) return
+    if (noteId) await moveNoteToFolder(noteId, targetPath)
+    if (folderPath) await moveFolderToFolder(folderPath, targetPath)
+  }
+
+  async function saveDocument() {
+    if (editorRenderMode === 'rich') {
+      await flushRichPendingUpdates()
+      exportRichEditorToMarkdown()
+    }
+    if (!selectedNote || !selectedDocument) return
+    if (lastSavedEditorText === editorText) return
+    const update = {
+      ...createTextDiffUpdate(selectedNote.documentId, services.clientId, sequence++, lastSavedEditorText, editorText, selectedDocument),
+      id: crypto.randomUUID(),
+      createdAt: new Date().toISOString(),
+    }
+    await queueOperation(services, { kind: 'append_document_update', update })
+    envelope = await services.cache.loadEnvelope()
+    lastSavedEditorText = editorText
+    const broadcasted = services.documentUpdates.publishUpdate(selectedNote.documentId, update)
+    scheduleRemoteFlush()
+    services.presence.publishCursor(selectedNote.documentId, editorElement?.selectionStart ?? editorText.length)
+    status = broadcasted ? 'Document shared live' : 'Document queued for sync'
+  }
+
+  function scheduleDocumentSave() {
+    if (saveTimer) clearTimeout(saveTimer)
+    saveTimer = setTimeout(() => {
+      saveTimer = null
+      void saveDocument()
+    }, 180)
+  }
+
+  async function flushPendingEditorSave() {
+    if (saveTimer) {
+      clearTimeout(saveTimer)
+      saveTimer = null
+      await saveDocument()
+    }
+  }
+
+  function scheduleRemoteFlush() {
+    if (flushTimer) clearTimeout(flushTimer)
+    flushTimer = setTimeout(async () => {
+      flushTimer = null
+      const activeDocumentId = selectedNote?.documentId
+      const shouldProtectActiveEditor = document.activeElement === editorElement && (Boolean(saveTimer) || hasPendingLocalEditorChange())
+      if (shouldProtectActiveEditor) {
+        scheduleRemoteFlush()
+        return
+      }
+      try {
+        envelope = await flushQueuedOperations(services)
+        if (activeDocumentId) {
+          const note = notes.find((item) => item.documentId === activeDocumentId)
+          if (note) {
+            selectedNoteId = note.id
+            const nextDocument = envelope?.documents.find((document) => document.id === activeDocumentId)
+            if (nextDocument) setEditorTextPreservingSelection(applyUpdates(nextDocument).text, true)
+          }
+        }
+        status = 'Synced'
+      } catch {
+        status = 'Offline, saving locally'
+      }
+    }, 800)
+  }
+
+  async function applyRemoteDocumentUpdate(update: CrdtUpdate) {
+    if (!envelope || update.clientId === services.clientId) return
+    if (editorRenderMode === 'rich' && richYDoc && update.documentId === selectedNote?.documentId) {
+      Y.applyUpdate(richYDoc, decodeYUpdate(update.payload), 'remote')
+    }
+    await flushPendingEditorSave()
+    envelope = mergeEnvelope(envelope, {
+      cursors: envelope.cursors,
+      apps: [],
+      noteFolders: [],
+      notes: [],
+      documents: [],
+      documentUpdates: [update],
+      tombstones: [],
+      conflicts: [],
+    })
+    await services.cache.saveEnvelope(envelope)
+    refreshSelectedEditorFromEnvelope(update.documentId)
+    status = 'Merged collaborator edit'
+  }
+
+  function refreshSelectedEditorFromEnvelope(documentId = selectedNote?.documentId) {
+    if (!documentId || !envelope || saveTimer) return
+    if (selectedNote?.documentId !== documentId) return
+    if (editorRenderMode === 'rich') {
+      const richDocument = envelope.documents.find((document) => document.id === documentId)
+      if (richDocument) applyRichDocumentState(richDocument)
+      return
+    }
+    if (document.activeElement === editorElement && hasPendingLocalEditorChange(documentId)) return
+    const nextDocument = envelope.documents.find((document) => document.id === documentId)
+    if (nextDocument) setEditorTextPreservingSelection(applyUpdates(nextDocument).text, true)
+  }
+
+  function applyRichDocumentState(documentState: CrdtDocumentState) {
+    if (editorRenderMode !== 'rich' || !richYDoc || documentState.id !== richDocumentId) return
+    try {
+      const incomingDoc = hydrateYDoc(documentState)
+      const diff = Y.encodeStateAsUpdate(incomingDoc, Y.encodeStateVector(richYDoc))
+      if (diff.length > 0) Y.applyUpdate(richYDoc, diff, 'remote')
+    } catch {
+      // Rich mode only consumes Yjs-backed document updates; legacy plaintext payloads remain in the text source.
+    }
+  }
+
+  function handleEditorInput() {
+    if (selectedNote) services.presence.publishCursor(selectedNote.documentId, editorElement?.selectionStart ?? editorText.length)
+    scheduleDocumentSave()
+  }
+
+  function hasPendingLocalEditorChange(documentId = selectedNote?.documentId) {
+    if (!documentId || selectedNote?.documentId !== documentId) return false
+    return lastSavedEditorText !== editorText
+  }
+
+  function setEditorTextPreservingSelection(nextText: string, markSaved = false) {
+    if (editorText === nextText) {
+      if (markSaved) lastSavedEditorText = nextText
+      return
+    }
+    const textarea = editorElement
+    const shouldPreserveSelection = textarea && document.activeElement === textarea
+    const previousText = editorText
+    const previousStart = textarea?.selectionStart ?? previousText.length
+    const previousEnd = textarea?.selectionEnd ?? previousStart
+    const previousDirection = textarea?.selectionDirection ?? 'none'
+
+    editorText = nextText
+    if (markSaved) lastSavedEditorText = nextText
+
+    if (!shouldPreserveSelection || !textarea) return
+    const nextStart = mapTextPosition(previousText, nextText, previousStart)
+    const nextEnd = mapTextPosition(previousText, nextText, previousEnd)
+    queueMicrotask(() => {
+      if (document.activeElement !== textarea) return
+      textarea.setSelectionRange(nextStart, nextEnd, previousDirection)
+    })
+  }
+
+  function mapTextPosition(previousText: string, nextText: string, position: number) {
+    let prefixLength = 0
+    const shortestLength = Math.min(previousText.length, nextText.length)
+    while (prefixLength < shortestLength && previousText[prefixLength] === nextText[prefixLength]) prefixLength += 1
+
+    let suffixLength = 0
+    while (
+      suffixLength < previousText.length - prefixLength &&
+      suffixLength < nextText.length - prefixLength &&
+      previousText[previousText.length - 1 - suffixLength] === nextText[nextText.length - 1 - suffixLength]
+    ) {
+      suffixLength += 1
+    }
+
+    const previousChangedEnd = previousText.length - suffixLength
+    const nextChangedEnd = nextText.length - suffixLength
+    if (position <= prefixLength) return position
+    if (position >= previousChangedEnd) return Math.max(0, position + nextText.length - previousText.length)
+    return nextChangedEnd
+  }
+
+  async function refreshSelectedDocumentFromServer(documentId = selectedNote?.documentId) {
+    if (!documentId || !envelope || saveTimer || flushTimer) return
+    if (document.activeElement === editorElement && hasPendingLocalEditorChange(documentId)) return
+    try {
+      const document = await services.api.get<CrdtDocumentState>(`/api/v1/documents/${documentId}`)
+      envelope = mergeEnvelope(envelope, {
+        cursors: envelope.cursors,
+        apps: [],
+        noteFolders: [],
+        notes: [],
+        documents: [document],
+        documentUpdates: document.updates,
+        tombstones: [],
+        conflicts: [],
+      })
+      await services.cache.saveEnvelope(envelope)
+      refreshSelectedEditorFromEnvelope(documentId)
+    } catch {
+      // Some local notes may not exist on the remote yet; queued sync will create them.
+    }
+  }
+
+  function startRemotePullFallback() {
+    if (pullTimer) clearInterval(pullTimer)
+    pullTimer = setInterval(async () => {
+      if (!selectedNote || saveTimer || flushTimer) return
+      try {
+        envelope = await pullChanges(services)
+        refreshSelectedEditorFromEnvelope()
+        await refreshSelectedDocumentFromServer()
+      } catch {
+        // Live websocket is the primary path; this fallback can fail quietly offline.
+      }
+    }, 1200)
+  }
+
+  async function deleteSelectedNote() {
+    if (!selectedNote) return
+    if (tokens.confirmDelete && !window.confirm(`Delete "${selectedNote.title}"?`)) return
+    await queueOperation(services, {
+      kind: 'delete_note',
+      id: selectedNote.id,
+      deletedAt: new Date().toISOString(),
+    })
+    envelope = await services.cache.loadEnvelope()
+    selectedNoteId = ''
+    status = 'Deleted locally'
+  }
+
+  async function deleteSelectedFolder() {
+    const folderPath = normalizeFolderPath(selectedFolderPath)
+    if (!selectedFolderCanDelete || folderPath === '/') return
+
+    const noteCount = selectedFolderNotes.length
+    const folderCount = selectedFolderFolders.length
+    const noteLabel = `${noteCount} note${noteCount === 1 ? '' : 's'}`
+    const folderLabel = `${folderCount} folder${folderCount === 1 ? '' : 's'}`
+    if (tokens.confirmDelete && !window.confirm(`Delete "${folderPath}" and its ${noteLabel}/${folderLabel}?`)) return
+
+    const deletedAt = new Date().toISOString()
+    for (const note of selectedFolderNotes) {
+      await queueOperation(services, {
+        kind: 'delete_note',
+        id: note.id,
+        deletedAt,
+      })
+    }
+    for (const folder of selectedFolderFolders) {
+      await queueOperation(services, {
+        kind: 'delete_note_folder',
+        id: folder.id,
+        deletedAt,
+      })
+    }
+
+    const selectedNoteWasDeleted = selectedNote ? selectedFolderNotes.some((note) => note.id === selectedNote.id) : false
+    envelope = await services.cache.loadEnvelope()
+    selectedFolderPath = ''
+    activeFolderPath = '/'
+    if (selectedNoteWasDeleted) selectedNoteId = ''
+    status = `Deleted folder ${folderPath}`
+  }
+
+  async function deleteSelectedFileTarget() {
+    if (selectedFolderCanDelete) {
+      await deleteSelectedFolder()
+      return
+    }
+    await deleteSelectedNote()
+  }
+
+  function downloadSelectedNote() {
+    if (!selectedNote) return
+    const safeTitle = (selectedNote.title.trim() || 'Untitled note').replace(/[^\w.-]+/g, '-').replace(/^-+|-+$/g, '') || 'note'
+    const blob = new Blob([editorText], { type: 'text/markdown;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `${safeTitle}.md`
+    link.click()
+    URL.revokeObjectURL(url)
+    status = 'Downloaded note'
+  }
+
+  function runCommand(command: string) {
+    if (editorRenderMode === 'rich' && runRichCommand(command)) return
+    if (command.startsWith('table-')) tableMenuOpen = false
+    if (command === 'undo') undoRedo('undo')
+    if (command === 'redo') undoRedo('redo')
+    if (command === 'save') void saveDocument()
+    if (command === 'heading-1') setHeading(1)
+    if (command === 'heading-2') setHeading(2)
+    if (command === 'heading-3') setHeading(3)
+    if (command === 'heading-4') setHeading(4)
+    if (command === 'heading-5') setHeading(5)
+    if (command === 'heading-6') setHeading(6)
+    if (command === 'paragraph') setHeading(0)
+    if (command === 'bold') wrapSelection('**', '**', 'bold text')
+    if (command === 'italic') wrapSelection('*', '*', 'italic text')
+    if (command === 'underline') wrapSelection('<u>', '</u>', 'underlined text')
+    if (command === 'strikethrough') wrapSelection('~~', '~~', 'struck text')
+    if (command === 'quote') transformSelectedLines((line) => (line.startsWith('> ') ? line : `> ${line}`))
+    if (command === 'code-block') wrapSelection('```\n', '\n```', 'code')
+    if (command === 'divider') insertBlock('\n---\n')
+    if (command === 'indent') transformSelectedLines((line) => `  ${line}`)
+    if (command === 'outdent') transformSelectedLines((line) => line.replace(/^( {1,2}|\t)/, ''))
+    if (command === 'align-left') wrapSelection('<div style="text-align: left;">\n', '\n</div>', 'Aligned text')
+    if (command === 'align-center') wrapSelection('<div style="text-align: center;">\n', '\n</div>', 'Aligned text')
+    if (command === 'align-right') wrapSelection('<div style="text-align: right;">\n', '\n</div>', 'Aligned text')
+    if (command === 'table') insertTable()
+    if (command === 'table-add-row') updateMarkdownTable('add-row')
+    if (command === 'table-remove-row') updateMarkdownTable('remove-row')
+    if (command === 'table-add-column') updateMarkdownTable('add-column')
+    if (command === 'table-remove-column') updateMarkdownTable('remove-column')
+    if (command === 'image') insertImage()
+    if (command === 'link') insertLink()
+  }
+
+  function selection() {
+    const start = editorElement?.selectionStart ?? editorText.length
+    const end = editorElement?.selectionEnd ?? editorText.length
+    return { start, end, selected: editorText.slice(start, end) }
+  }
+
+  function undoRedo(command: 'undo' | 'redo') {
+    editorElement?.focus()
+    document.execCommand(command)
+  }
+
+  function replaceRange(start: number, end: number, replacement: string, nextStart = start, nextEnd = start + replacement.length) {
+    editorText = `${editorText.slice(0, start)}${replacement}${editorText.slice(end)}`
+    scheduleDocumentSave()
+    queueMicrotask(() => {
+      editorElement?.focus()
+      editorElement?.setSelectionRange(nextStart, nextEnd)
+    })
+  }
+
+  function wrapSelection(prefix: string, suffix: string, placeholder: string) {
+    const { start, end, selected } = selection()
+    const content = selected || placeholder
+    replaceRange(start, end, `${prefix}${content}${suffix}`, start + prefix.length, start + prefix.length + content.length)
+  }
+
+  function insertBlock(block: string) {
+    const { start, end } = selection()
+    const prefix = start > 0 && !editorText.slice(0, start).endsWith('\n') ? '\n' : ''
+    const suffix = end < editorText.length && !editorText.slice(end).startsWith('\n') ? '\n' : ''
+    replaceRange(start, end, `${prefix}${block}${suffix}`)
+  }
+
+  function transformSelectedLines(transform: (line: string) => string) {
+    const { start, end } = selection()
+    const lineStart = editorText.lastIndexOf('\n', Math.max(0, start - 1)) + 1
+    const nextBreak = editorText.indexOf('\n', end)
+    const lineEnd = nextBreak === -1 ? editorText.length : nextBreak
+    const block = editorText.slice(lineStart, lineEnd)
+    replaceRange(lineStart, lineEnd, block.split('\n').map(transform).join('\n'))
+  }
+
+  function setHeading(level: number) {
+    transformSelectedLines((line) => {
+      const cleaned = line.replace(/^#{1,6}\s*/, '')
+      return level === 0 ? cleaned : `${'#'.repeat(level)} ${cleaned || 'Heading'}`
+    })
+  }
+
+  function applyColor(kind: 'color' | 'highlight', color: string) {
+    if (editorRenderMode === 'rich' && richEditor) {
+      if (kind === 'color') richEditor.chain().focus().setColor(color).run()
+      if (kind === 'highlight') richEditor.chain().focus().toggleHighlight({ color }).run()
+      return
+    }
+    if (kind === 'color') wrapSelection(`<span style="color: ${color};">`, '</span>', 'colored text')
+    if (kind === 'highlight') wrapSelection(`<mark style="background: ${color};">`, '</mark>', 'highlighted text')
+  }
+
+  function applyFont(fontFamily: string) {
+    if (!fontFamily) return
+    if (editorRenderMode === 'rich' && richEditor) {
+      richEditor.chain().focus().setFontFamily(fontFamily).run()
+      return
+    }
+    wrapSelection(`<span style="font-family: ${fontFamily};">`, '</span>', 'font text')
+  }
+
+  function insertLink() {
+    const url = window.prompt('Link URL')
+    if (!url) return
+    const { selected } = selection()
+    wrapSelection('[', `](${url})`, selected || 'link text')
+  }
+
+  function insertImage() {
+    const url = window.prompt('Image URL')
+    if (!url) return
+    const alt = window.prompt('Alt text') ?? 'image'
+    insertBlock(`![${alt}](${url})`)
+  }
+
+  function insertTable() {
+    insertBlock('\n| Column 1 | Column 2 | Column 3 |\n| --- | --- | --- |\n| Cell | Cell | Cell |\n')
+  }
+
+  function updateMarkdownTable(action: 'add-row' | 'remove-row' | 'add-column' | 'remove-column') {
+    const current = selection()
+    const lines = editorText.split('\n')
+    const beforeCursor = editorText.slice(0, current.start).split('\n')
+    const cursorLine = beforeCursor.length - 1
+    let start = cursorLine
+    let end = cursorLine
+    while (start > 0 && isTableLine(lines[start - 1])) start -= 1
+    while (end < lines.length - 1 && isTableLine(lines[end + 1])) end += 1
+    if (!isTableLine(lines[cursorLine]) || end - start < 1) {
+      insertTable()
+      return
+    }
+    const table = lines.slice(start, end + 1)
+    const columnCount = Math.max(...table.map((line) => splitTableRow(line).length), 2)
+    if (action === 'add-row') table.push(tableRow(Array.from({ length: columnCount }, () => 'Cell')))
+    if (action === 'remove-row' && table.length > 2) table.splice(Math.max(2, cursorLine - start), 1)
+    if (action === 'add-column') {
+      for (let index = 0; index < table.length; index += 1) {
+        const cells = splitTableRow(table[index])
+        cells.push(index === 1 ? '---' : index === 0 ? `Column ${cells.length + 1}` : 'Cell')
+        table[index] = tableRow(cells)
+      }
+    }
+    if (action === 'remove-column' && columnCount > 1) {
+      for (let index = 0; index < table.length; index += 1) {
+        const cells = splitTableRow(table[index])
+        cells.pop()
+        table[index] = tableRow(cells)
+      }
+    }
+    lines.splice(start, end - start + 1, ...table)
+    editorText = lines.join('\n')
+    scheduleDocumentSave()
+  }
+
+  function isTableLine(line: string) {
+    return /^\s*\|.*\|\s*$/.test(line)
+  }
+
+  function splitTableRow(line: string) {
+    return line.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map((cell) => cell.trim())
+  }
+
+  function tableRow(cells: string[]) {
+    return `| ${cells.join(' | ')} |`
+  }
+
+  async function createFolder() {
+    const name = window.prompt('Folder name')
+    if (!name) return
+    const folderPath = normalizeFolderPath(`${activeFolderPath}/${name}`)
+    const existingFolder = noteFolders.find((folder) => normalizeFolderPath(folder.path) === folderPath)
+    if (!existingFolder) {
+      const now = new Date().toISOString()
+      const folder: NoteFolder = {
+        id: crypto.randomUUID(),
+        path: folderPath,
+        name: folderName(folderPath),
+        ownerId: 'local-user',
+        workspaceId: 'default',
+        createdAt: now,
+        updatedAt: now,
+      }
+      await queueOperation(services, { kind: 'create_note_folder', folder })
+      envelope = await services.cache.loadEnvelope()
+    }
+    activeFolderPath = folderPath
+    selectedFolderPath = folderPath
+    status = `Folder selected: ${activeFolderPath}`
+  }
+
+  async function handleUploadFiles(files: FileList | null) {
+    if (!files) return
+    for (const file of Array.from(files)) {
+      if (!/\.(md|txt)$/i.test(file.name)) {
+        status = 'Only .txt and .md uploads are supported'
+        continue
+      }
+      await createNoteFromUpload(file, await file.text())
+    }
+    if (uploadInputElement) uploadInputElement.value = ''
+  }
+
+  function normalizeFolderPath(path: string) {
+    const normalized = `/${path}`.replace(/\/+/g, '/').replace(/\/$/, '')
+    return normalized === '' ? '/' : normalized
+  }
+
+  function folderName(path: string) {
+    const normalized = normalizeFolderPath(path)
+    return normalized === '/' ? 'Root' : normalized.split('/').filter(Boolean).at(-1) ?? normalized
+  }
+
+  function remapPath(path: string, sourcePath: string, movedPath: string) {
+    const normalized = normalizeFolderPath(path)
+    if (normalized === sourcePath) return movedPath
+    return normalizeFolderPath(`${movedPath}/${normalized.slice(sourcePath.length)}`)
+  }
+
+  function isSameOrNestedPath(path: string, parentPath: string) {
+    const normalizedPath = normalizeFolderPath(path)
+    const normalizedParent = normalizeFolderPath(parentPath)
+    return normalizedPath === normalizedParent || normalizedPath.startsWith(`${normalizedParent}/`)
+  }
+
+  function toggleFolderCollapsed(event: MouseEvent, path: string) {
+    event.stopPropagation()
+    const normalized = normalizeFolderPath(path)
+    collapsedFolderPaths = collapsedFolderPaths.includes(normalized)
+      ? collapsedFolderPaths.filter((item) => item !== normalized)
+      : [...collapsedFolderPaths, normalized]
+  }
+
+  function isFolderCollapsed(path: string) {
+    return collapsedFolderPaths.includes(normalizeFolderPath(path))
+  }
+
+  function handleFolderKey(event: KeyboardEvent, path: string) {
+    if (event.key !== 'Enter' && event.key !== ' ') return
+    event.preventDefault()
+    selectFolder(path)
+  }
+
+  function folderMatchesSearch(folder: NoteFolder) {
+    const query = searchQuery.trim().toLowerCase()
+    if (!query) return true
+    return `${folder.name} ${folder.path}`.toLowerCase().includes(query)
+  }
+
+  start()
+
+  onDestroy(() => {
+    unsubscribePresence?.()
+    unsubscribeDocumentUpdates?.()
+    void flushRichPendingUpdates()
+    destroyRichEditor()
+    if (saveTimer) clearTimeout(saveTimer)
+    if (flushTimer) clearTimeout(flushTimer)
+    if (pullTimer) clearInterval(pullTimer)
+    if (richUpdateTimer) clearTimeout(richUpdateTimer)
+  })
+
+  $: applyTokens(tokens)
+
+  function updateTokens(nextTokens: DesignTokens) {
+    tokens = nextTokens
+    services.tokens = nextTokens
+    saveStoredTokens(nextTokens)
+    applyTokens(nextTokens)
+  }
+
+  function startSidebarResize(event: PointerEvent) {
+    resizingSidebar = true
+    const target = event.currentTarget as HTMLElement | null
+    target?.setPointerCapture(event.pointerId)
+  }
+
+  function resizeSidebar(event: PointerEvent) {
+    if (!resizingSidebar) return
+    sidebarWidth = Math.min(520, Math.max(220, event.clientX))
+  }
+
+  function stopSidebarResize(event: PointerEvent) {
+    resizingSidebar = false
+    const target = event.currentTarget as HTMLElement | null
+    target?.releasePointerCapture(event.pointerId)
+  }
+
+  async function setEditorRenderMode(mode: EditorRenderMode) {
+    if (editorRenderMode === 'rich' && mode !== 'rich') {
+      await flushRichPendingUpdates()
+      exportRichEditorToMarkdown()
+      scheduleDocumentSave()
+    }
+    editorRenderMode = mode
+    if (typeof localStorage !== 'undefined') localStorage.setItem('og-suite:notes:editor-render-mode', mode)
+  }
+
+  function loadEditorRenderMode(): EditorRenderMode {
+    if (typeof localStorage === 'undefined') return 'text'
+    const stored = localStorage.getItem('og-suite:notes:editor-render-mode')
+    if (stored === 'markdown' || stored === 'rich') return stored
+    return 'text'
+  }
+
+  function renderMarkdown(source: string) {
+    const html = marked.parse(normalizeMarkdownHeadings(source), { async: false }) as string
+    return sanitizeRenderedMarkdown(html)
+  }
+
+  function normalizeMarkdownHeadings(source: string) {
+    return source.replace(/^(#{1,6})([^\s#].*)$/gm, (_match, hashes: string, text: string) => `${hashes} ${text}`)
+  }
+
+  function sanitizeRenderedMarkdown(html: string) {
+    return DOMPurify.sanitize(html, {
+      USE_PROFILES: { html: true },
+      ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto|tel):|[^a-z]|[a-z+.-]+(?:[^a-z+.-:]|$))/i,
+    })
+  }
+
+  const IndentExtension = Extension.create({
+    name: 'indent',
+    addGlobalAttributes() {
+      return [
+        {
+          types: ['paragraph', 'heading'],
+          attributes: {
+            indent: {
+              default: 0,
+              parseHTML: (element) => Number(element.getAttribute('data-indent') ?? 0),
+              renderHTML: (attributes) => {
+                const indent = Number(attributes.indent ?? 0)
+                if (!indent) return {}
+                return {
+                  'data-indent': String(indent),
+                  style: `margin-left: ${indent * 1.5}em;`,
+                }
+              },
+            },
+          },
+        },
+      ]
+    },
+    addCommands() {
+      return {
+        indent:
+          () =>
+          ({ editor, chain }: any) => {
+            const nodeName = editor.isActive('heading') ? 'heading' : 'paragraph'
+            const currentIndent = Number(editor.getAttributes(nodeName).indent ?? 0)
+            return chain()
+              .updateAttributes(nodeName, { indent: Math.min(currentIndent + 1, 8) })
+              .run()
+          },
+        outdent:
+          () =>
+          ({ editor, chain }: any) => {
+            const nodeName = editor.isActive('heading') ? 'heading' : 'paragraph'
+            const currentIndent = Number(editor.getAttributes(nodeName).indent ?? 0)
+            return chain()
+              .updateAttributes(nodeName, { indent: Math.max(currentIndent - 1, 0) })
+              .run()
+          },
+      } as any
+    },
+  })
+
+  function ensureRichEditor() {
+    if (!selectedNote || !selectedDocument || !richEditorElement) return
+    if (richEditor && richDocumentId === selectedNote.documentId) return
+    destroyRichEditor()
+
+    const ydoc = hydrateYDoc(selectedDocument)
+    const fragment = ydoc.getXmlFragment('rich-content')
+    richYDoc = ydoc
+    richDocumentId = selectedNote.documentId
+
+    richEditor = new Editor({
+      element: richEditorElement,
+      extensions: [
+        StarterKit.configure({ undoRedo: false }),
+        Underline,
+        Link.configure({
+          openOnClick: false,
+          autolink: true,
+          protocols: ['http', 'https', 'mailto', 'tel'],
+        }),
+        Image,
+        TextStyle,
+        FontFamily,
+        Color,
+        Highlight.configure({ multicolor: true }),
+        TextAlign.configure({ types: ['heading', 'paragraph'] }),
+        IndentExtension,
+        Table.configure({ resizable: true }),
+        TableRow,
+        TableHeader,
+        TableCell,
+        Collaboration.configure({
+          document: ydoc,
+          field: 'rich-content',
+        }),
+      ],
+      editorProps: {
+        attributes: {
+          class: 'rich-editor-content',
+          'aria-label': 'Rich text editor',
+        },
+      },
+      onUpdate: () => {
+        richActiveStateVersion += 1
+        queueMicrotask(updateRichTableToolsFromSelection)
+        services.presence.publishCursor(selectedNote.documentId, richEditor?.state.selection.from ?? null)
+      },
+      onSelectionUpdate: () => {
+        richActiveStateVersion += 1
+        queueMicrotask(updateRichTableToolsFromSelection)
+      },
+      onTransaction: () => {
+        richActiveStateVersion += 1
+        queueMicrotask(updateRichTableToolsFromSelection)
+      },
+    })
+
+    ydoc.on('update', handleLocalRichYUpdate)
+    if (fragment.length === 0 && editorText.trim().length > 0) {
+      richEditor.commands.setContent(renderMarkdown(editorText), { emitUpdate: true })
+    }
+  }
+
+  function destroyRichEditor() {
+    void flushRichPendingUpdates()
+    richYDoc?.off('update', handleLocalRichYUpdate)
+    richEditor?.destroy()
+    richEditor = null
+    richYDoc = null
+    richDocumentId = ''
+    tableMenuOpen = false
+    richTableMenuStyle = ''
+  }
+
+  function handleLocalRichYUpdate(update: Uint8Array, origin: unknown) {
+    if (origin === 'remote' || !selectedNote) return
+    richPendingUpdates = [...richPendingUpdates, update]
+    if (richPendingUpdates.length >= 20) {
+      void flushRichPendingUpdates()
+      status = 'Rich text shared live'
+      return
+    }
+    if (richUpdateTimer) clearTimeout(richUpdateTimer)
+    richUpdateTimer = setTimeout(() => {
+      richUpdateTimer = null
+      void flushRichPendingUpdates()
+    }, 90)
+    status = 'Rich text editing locally'
+  }
+
+  async function flushRichPendingUpdates() {
+    if (richFlushInFlight) return
+    if (richUpdateTimer) {
+      clearTimeout(richUpdateTimer)
+      richUpdateTimer = null
+    }
+    const pendingUpdates = richPendingUpdates
+    richPendingUpdates = []
+    const documentId = richDocumentId || selectedNote?.documentId
+    if (!documentId || pendingUpdates.length === 0) return
+    richFlushInFlight = true
+    const mergedUpdate = pendingUpdates.length === 1 ? pendingUpdates[0] : Y.mergeUpdates(pendingUpdates)
+    try {
+      const crdtUpdate: CrdtUpdate = {
+        id: crypto.randomUUID(),
+        documentId,
+        clientId: services.clientId,
+        sequence: sequence++,
+        payload: encodeYUpdate(mergedUpdate),
+        createdAt: new Date().toISOString(),
+        clientSchemaVersion: 2,
+      }
+      await queueOperation(services, { kind: 'append_document_update', update: crdtUpdate })
+      envelope = await services.cache.loadEnvelope()
+      const broadcasted = services.documentUpdates.publishUpdate(documentId, crdtUpdate)
+      scheduleRemoteFlush()
+      status = broadcasted ? 'Rich text shared live' : 'Rich text queued for sync'
+    } finally {
+      richFlushInFlight = false
+      if (richPendingUpdates.length > 0 && !richUpdateTimer) {
+        richUpdateTimer = setTimeout(() => {
+          richUpdateTimer = null
+          void flushRichPendingUpdates()
+        }, 90)
+      }
+    }
+  }
+
+  function exportRichEditorToMarkdown() {
+    if (!richEditor) return
+    const markdown = turndown.turndown(sanitizeRenderedMarkdown(richEditor.getHTML()))
+    editorText = markdown.trim() ? `${markdown.trimEnd()}\n` : ''
+  }
+
+  function runRichCommand(command: string) {
+    if (!richEditor) return false
+    if (command.startsWith('table-')) tableMenuOpen = false
+    if (command === 'undo') return richEditor.chain().focus().undo().run()
+    if (command === 'redo') return richEditor.chain().focus().redo().run()
+    if (command === 'save') {
+      void saveDocument()
+      return true
+    }
+    if (command === 'paragraph') return richEditor.chain().focus().setParagraph().run()
+    if (command.startsWith('heading-')) return richEditor.chain().focus().setHeading({ level: Number(command.replace('heading-', '')) as 1 | 2 | 3 | 4 | 5 | 6 }).run()
+    if (command === 'bold') return richEditor.chain().focus().toggleBold().run()
+    if (command === 'italic') return richEditor.chain().focus().toggleItalic().run()
+    if (command === 'underline') return richEditor.chain().focus().toggleUnderline().run()
+    if (command === 'strikethrough') return richEditor.chain().focus().toggleStrike().run()
+    if (command === 'quote') return richEditor.chain().focus().toggleBlockquote().run()
+    if (command === 'code-block') return richEditor.chain().focus().toggleCodeBlock().run()
+    if (command === 'divider') return richEditor.chain().focus().setHorizontalRule().run()
+    if (command === 'link') {
+      const href = window.prompt('Link URL')
+      if (href) return richEditor.chain().focus().setLink({ href }).run()
+      return true
+    }
+    if (command === 'image') {
+      const src = window.prompt('Image URL')
+      if (!src) return true
+      const alt = window.prompt('Alt text') ?? ''
+      return richEditor.chain().focus().setImage({ src, alt }).run()
+    }
+    if (command === 'indent') {
+      if (richEditor.isActive('listItem')) return richEditor.chain().focus().sinkListItem('listItem').run()
+      return applyRichIndent(1)
+    }
+    if (command === 'outdent') {
+      if (richEditor.isActive('listItem')) return richEditor.chain().focus().liftListItem('listItem').run()
+      return applyRichIndent(-1)
+    }
+    if (command === 'align-left') return richEditor.chain().focus().setTextAlign('left').run()
+    if (command === 'align-center') return richEditor.chain().focus().setTextAlign('center').run()
+    if (command === 'align-right') return richEditor.chain().focus().setTextAlign('right').run()
+    if (command === 'table') return richEditor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()
+    if (command === 'table-add-row') return richEditor.chain().focus().addRowAfter().run()
+    if (command === 'table-remove-row') return richEditor.chain().focus().deleteRow().run()
+    if (command === 'table-add-column') return richEditor.chain().focus().addColumnAfter().run()
+    if (command === 'table-remove-column') return richEditor.chain().focus().deleteColumn().run()
+    return false
+  }
+
+  function updateRichTableToolsFromPointer(event: MouseEvent) {
+    if (editorRenderMode !== 'rich' || !richEditorElement) return
+    const table = (event.target as Element | null)?.closest?.('.rich-editor-content table') as HTMLElement | null
+    if (!table) {
+      if (!richEditor?.isActive('table')) {
+        tableMenuOpen = false
+        richTableMenuStyle = ''
+      }
+      return
+    }
+    positionRichTableTools(table)
+  }
+
+  function richTableHost(node: HTMLDivElement) {
+    const updateFromPointer = (event: MouseEvent) => updateRichTableToolsFromPointer(event)
+    const handleMouseLeave = () => {
+      if (!richEditor?.isActive('table')) tableMenuOpen = false
+    }
+    node.addEventListener('mousemove', updateFromPointer)
+    node.addEventListener('click', updateFromPointer)
+    node.addEventListener('mouseleave', handleMouseLeave)
+    return {
+      destroy() {
+        node.removeEventListener('mousemove', updateFromPointer)
+        node.removeEventListener('click', updateFromPointer)
+        node.removeEventListener('mouseleave', handleMouseLeave)
+      },
+    }
+  }
+
+  function updateRichTableToolsFromSelection() {
+    if (editorRenderMode !== 'rich' || !richEditor || !richEditorElement || !richEditor.isActive('table')) {
+      tableMenuOpen = false
+      richTableMenuStyle = ''
+      return
+    }
+    const { node } = richEditor.view.domAtPos(richEditor.state.selection.from)
+    const element = node.nodeType === Node.ELEMENT_NODE ? (node as Element) : node.parentElement
+    const table = element?.closest?.('table') as HTMLElement | null
+    if (table) positionRichTableTools(table)
+  }
+
+  function positionRichTableTools(table: HTMLElement) {
+    if (!richEditorElement) return
+    const hostRect = richEditorElement.getBoundingClientRect()
+    const tableRect = table.getBoundingClientRect()
+    const top = Math.max(8, tableRect.top - hostRect.top + richEditorElement.scrollTop + 6)
+    const left = Math.max(8, tableRect.right - hostRect.left + richEditorElement.scrollLeft - 36)
+    richTableMenuStyle = `top: ${top}px; left: ${left}px;`
+    tableMenuOpen = true
+  }
+
+  function applyRichIndent(delta: number) {
+    if (!richEditor) return false
+    richEditor.commands.focus()
+    const { state, view } = richEditor
+    const { from, to, empty, $from } = state.selection
+    const tr = state.tr
+    const updateNodeIndent = (position: number, node: any) => {
+      if (node.type.name !== 'paragraph' && node.type.name !== 'heading') return
+      const indent = Math.max(0, Math.min(Number(node.attrs.indent ?? 0) + delta, 8))
+      tr.setNodeMarkup(position, undefined, { ...node.attrs, indent })
+    }
+
+    if (empty) {
+      for (let depth = $from.depth; depth > 0; depth -= 1) {
+        const node = $from.node(depth)
+        if (node.type.name === 'paragraph' || node.type.name === 'heading') {
+          updateNodeIndent($from.before(depth), node)
+          break
+        }
+      }
+    } else {
+      state.doc.nodesBetween(from, to, (node, position) => {
+        updateNodeIndent(position, node)
+      })
+    }
+
+    if (!tr.docChanged) return true
+    view.dispatch(tr.scrollIntoView())
+    richActiveStateVersion += 1
+    return true
+  }
+
+  function richCommandActive(command: string, _version = richActiveStateVersion) {
+    richActiveStateVersion
+    if (editorRenderMode !== 'rich' || !richEditor) return false
+    if (command === 'bold') return richEditor.isActive('bold') || richStoredMarkActive('bold')
+    if (command === 'italic') return richEditor.isActive('italic') || richStoredMarkActive('italic')
+    if (command === 'underline') return richEditor.isActive('underline') || richStoredMarkActive('underline')
+    if (command === 'strikethrough') return richEditor.isActive('strike') || richStoredMarkActive('strike')
+    if (command === 'quote') return richEditor.isActive('blockquote')
+    if (command === 'code-block') return richEditor.isActive('codeBlock')
+    if (command === 'link') return richEditor.isActive('link')
+    if (command === 'table') return richEditor.isActive('table')
+    if (command === 'align-left') return richEditor.isActive({ textAlign: 'left' })
+    if (command === 'align-center') return richEditor.isActive({ textAlign: 'center' })
+    if (command === 'align-right') return richEditor.isActive({ textAlign: 'right' })
+    if (command === 'indent') return Number(richEditor.getAttributes('paragraph').indent ?? richEditor.getAttributes('heading').indent ?? 0) > 0
+    if (command === 'paragraph') return richEditor.isActive('paragraph')
+    if (command.startsWith('heading-')) return richEditor.isActive('heading', { level: Number(command.replace('heading-', '')) })
+    return false
+  }
+
+  function richStoredMarkActive(markName: string) {
+    if (!richEditor) return false
+    const markType = richEditor.schema.marks[markName]
+    if (!markType) return false
+    return Boolean(richEditor.state.storedMarks?.some((mark) => mark.type === markType))
+  }
+</script>
+
+<main class:resizing-sidebar={resizingSidebar} class="notes-app" data-mode={mode} style={`--notes-pane-width: ${sidebarWidth}px;`}>
+  <aside class:mobile-open={mobileFilesOpen} class="notes-list" aria-label="Notes">
+    <div class="notes-list-panel">
+      {#if mode === 'suite'}
+        <nav class="mobile-suite-app-switcher" aria-label="Suite apps">
+          {#each suiteNavItems as item}
+            <button
+              class:active={activeSuiteAppId === item.id}
+              disabled={item.disabled}
+              aria-current={activeSuiteAppId === item.id ? 'page' : undefined}
+              on:click={() => selectSuiteApp(item.id)}
+            >
+              {item.name}
+            </button>
+          {/each}
+          <button
+            class="mobile-suite-settings-button"
+            aria-label="Open settings"
+            title="Settings"
+            on:click={openSuiteSettings}
+          >
+            <Icon name="settings" size={16} />
+          </button>
+        </nav>
+      {/if}
+
+      <div class="panel-title">
+        <div class="header-actions">
+          <button class="icon-label-button" aria-label="New note" title="New note" on:click={() => createNote()}>
+            <Icon name="new-note" size={18} />
+          </button>
+          <button class="icon-only-button" aria-label="Search notes" title="Search notes" on:click={() => searchOpen = !searchOpen}>
+            <Icon name="search" size={18} />
+          </button>
+          <button class="icon-only-button" aria-label="New folder" title="New folder" on:click={createFolder}>
+            <Icon name="new-folder" size={18} />
+          </button>
+          <button class="icon-only-button" aria-label="Upload text or markdown" title="Upload text or markdown" on:click={() => uploadInputElement?.click()}>
+            <Icon name="upload" size={18} />
+          </button>
+          <button class="icon-only-button" aria-label="Download selected note" title="Download selected note" disabled={!selectedNote} on:click={downloadSelectedNote}>
+            <Icon name="download" size={18} />
+          </button>
+          <button
+            class="icon-only-button danger"
+            aria-label={selectedFolderCanDelete ? 'Delete selected folder' : 'Delete selected note'}
+            title={selectedFolderCanDelete ? 'Delete selected folder' : 'Delete selected note'}
+            disabled={!selectedFolderCanDelete && !selectedNote}
+            on:click={deleteSelectedFileTarget}
+          >
+            <Icon name="delete" size={18} />
+          </button>
+          {#if mode === 'standalone'}
+            <button class="icon-label-button" aria-label="Settings" title="Settings" on:click={() => settingsOpen = true}>
+              <Icon name="settings" size={18} />
+            </button>
+          {/if}
+          <input
+            bind:this={uploadInputElement}
+            class="hidden-file-input"
+            type="file"
+            accept=".txt,.md,text/plain,text/markdown"
+            multiple
+            on:change={(event) => void handleUploadFiles(event.currentTarget.files)}
+          />
+        </div>
+      </div>
+
+      <div class="editor-mode-toggle" aria-label="Editor mode">
+        <button
+          class:active={editorRenderMode === 'text'}
+          aria-pressed={editorRenderMode === 'text'}
+          on:click={() => setEditorRenderMode('text')}
+        >
+          TXT
+        </button>
+        <button
+          class:active={editorRenderMode === 'markdown'}
+          aria-pressed={editorRenderMode === 'markdown'}
+          on:click={() => setEditorRenderMode('markdown')}
+        >
+          MD
+        </button>
+        <button
+          class:active={editorRenderMode === 'rich'}
+          aria-pressed={editorRenderMode === 'rich'}
+          on:click={() => setEditorRenderMode('rich')}
+        >
+          RICH
+        </button>
+      </div>
+
+      {#if searchOpen}
+        <label class="sidebar-search">
+          <Icon name="search" size={16} />
+          <input aria-label="Search notes" placeholder="Search notes" bind:value={searchQuery} />
+        </label>
+      {/if}
+
+      {#if notes.length === 0}
+        <button class="empty-state icon-label-button" on:click={() => createNote()}>
+          <Icon name="new-note" size={18} />
+          <span>Create the first note</span>
+        </button>
+      {/if}
+
+      <div class="file-tree" aria-label="Note folders">
+        {#if rootNotes.length > 0 || draggedNoteId || draggedFolderPath}
+          <div
+            role="group"
+            class="tree-group"
+            data-folder-drop-target="/"
+            on:dragover={(event) => allowFolderDrop(event, '/')}
+            on:dragleave={() => dragTargetPath = ''}
+            on:drop={(event) => dropNoteOnFolder(event, '/')}
+          >
+            <button
+              class:active={activeFolderPath === '/'}
+              class:drop-target={dragTargetPath === '/'}
+              class="folder-row"
+              data-folder-drop-target="/"
+              on:click={(event) => handleFolderRowClick(event, '/')}
+              on:dragover={(event) => allowFolderDrop(event, '/')}
+              on:dragleave={() => dragTargetPath = ''}
+              on:drop={(event) => dropNoteOnFolder(event, '/')}
+            >
+              <span class="folder-icon">/</span>
+              <span>Root</span>
+            </button>
+            {#each rootNotes as note}
+              <button
+                class:selected={note.id === selectedNoteId}
+                class:dragging={draggedNoteId === note.id}
+                class="note-row file-row"
+                data-folder-drop-target="/"
+                draggable="true"
+                on:click={(event) => handleNoteRowClick(event, note)}
+                on:dragstart={(event) => startNoteDrag(event, note)}
+                on:dragend={endNoteDrag}
+                on:pointerdown={(event) => startMobileNotePress(event, note)}
+                on:pointermove={moveMobileTreePress}
+                on:pointerup={endMobileTreePress}
+                on:pointercancel={cancelMobileTreePress}
+              >
+                <strong>{note.title}</strong>
+              </button>
+            {/each}
+          </div>
+        {/if}
+
+        {#each folderGroups as folder}
+          <div
+            role="group"
+            class="tree-group"
+            data-folder-drop-target={folder.path}
+            on:dragover={(event) => allowFolderDrop(event, folder.path)}
+            on:dragleave={() => dragTargetPath = ''}
+            on:drop={(event) => dropNoteOnFolder(event, folder.path)}
+          >
+            <div
+              role="button"
+              tabindex="0"
+              class:active={activeFolderPath === folder.path}
+              class:selected-folder={selectedFolderPath === folder.path}
+              class:drop-target={dragTargetPath === folder.path}
+              class:dragging={draggedFolderPath === folder.path}
+              class="folder-row"
+              data-folder-drop-target={folder.path}
+              draggable="true"
+              on:click={(event) => handleFolderRowClick(event, folder.path)}
+              on:keydown={(event) => handleFolderKey(event, folder.path)}
+              on:dragstart={(event) => startFolderDrag(event, folder.path)}
+              on:dragover={(event) => allowFolderDrop(event, folder.path)}
+              on:dragleave={() => dragTargetPath = ''}
+              on:drop={(event) => dropNoteOnFolder(event, folder.path)}
+              on:dragend={endNoteDrag}
+              on:pointerdown={(event) => startMobileFolderPress(event, folder.path)}
+              on:pointermove={moveMobileTreePress}
+              on:pointerup={endMobileTreePress}
+              on:pointercancel={cancelMobileTreePress}
+            >
+              <span>{folder.path}</span>
+              {#if folder.notes.length === 0}
+                <span class="folder-empty">Empty</span>
+              {/if}
+              <span class="folder-spacer"></span>
+              <button
+                class="folder-minimize"
+                aria-label={isFolderCollapsed(folder.path) ? 'Expand folder' : 'Minimize folder'}
+                title={isFolderCollapsed(folder.path) ? 'Expand folder' : 'Minimize folder'}
+                on:pointerdown={(event) => event.stopPropagation()}
+                on:mousedown={(event) => event.stopPropagation()}
+                on:dragstart={(event) => {
+                  event.preventDefault()
+                  event.stopPropagation()
+                }}
+                on:click={(event) => toggleFolderCollapsed(event, folder.path)}
+              >
+                {isFolderCollapsed(folder.path) ? '+' : '-'}
+              </button>
+            </div>
+            {#if !isFolderCollapsed(folder.path)}
+              {#each folder.notes as note}
+                <button
+                  class:selected={note.id === selectedNoteId}
+                  class:dragging={draggedNoteId === note.id}
+                  class="note-row file-row nested"
+                  data-folder-drop-target={folder.path}
+                  draggable="true"
+                  on:click={(event) => handleNoteRowClick(event, note)}
+                  on:dragstart={(event) => startNoteDrag(event, note)}
+                  on:dragend={endNoteDrag}
+                  on:pointerdown={(event) => startMobileNotePress(event, note)}
+                  on:pointermove={moveMobileTreePress}
+                  on:pointerup={endMobileTreePress}
+                  on:pointercancel={cancelMobileTreePress}
+                >
+                  <strong>{note.title}</strong>
+                </button>
+              {/each}
+            {/if}
+          </div>
+        {/each}
+      </div>
+
+      {#if notes.length > 0 && filteredNotes.length === 0}
+        <div class="empty-tree">No matching notes</div>
+      {/if}
+    </div>
+    <button class="mobile-files-close" aria-label="Close files" title="Close files" on:click={() => mobileFilesOpen = false}>
+      Close
+    </button>
+  </aside>
+
+  <div
+    class="sidebar-resizer"
+    role="separator"
+    aria-label="Resize folders panel"
+    aria-orientation="vertical"
+    aria-valuemin="220"
+    aria-valuemax="520"
+    aria-valuenow={sidebarWidth}
+    on:pointerdown={startSidebarResize}
+    on:pointermove={resizeSidebar}
+    on:pointerup={stopSidebarResize}
+    on:pointercancel={stopSidebarResize}
+  ></div>
+
+  <section class="editor-shell">
+    {#if selectedNote}
+      <div class="metadata">
+        <div class="note-title-panel">
+          <input aria-label="Title" bind:value={draftTitle} on:change={saveMetadata} />
+          <span
+            class={`save-indicator ${saveIndicatorState}`}
+            role="status"
+            aria-label={saveIndicatorLabel}
+            title={saveIndicatorLabel}
+          >
+            <Icon name="save" size={16} />
+          </span>
+          <button
+            class="mobile-files-toggle"
+            aria-label="Open files"
+            title="Files"
+            on:click={() => mobileFilesOpen = true}
+          >
+            <span aria-hidden="true"></span>
+          </button>
+        </div>
+      </div>
+    {/if}
+
+    <div class="toolbar" aria-label="Editor toolbar">
+      <button aria-label="Undo" title="Undo" on:click={() => runCommand('undo')}><Icon name="undo" size={18} /></button>
+      <button aria-label="Redo" title="Redo" on:click={() => runCommand('redo')}><Icon name="redo" size={18} /></button>
+      <label class:active-action={richCommandActive('heading-1', richActiveStateVersion) || richCommandActive('heading-2', richActiveStateVersion) || richCommandActive('heading-3', richActiveStateVersion) || richCommandActive('heading-4', richActiveStateVersion) || richCommandActive('heading-5', richActiveStateVersion) || richCommandActive('heading-6', richActiveStateVersion)} class="icon-select-tool" title="Heading">
+        <span class="toolbar-glyph">H</span>
+        <span class="sr-only">Heading</span>
+        <select aria-label="Heading" on:change={(event) => runCommand(event.currentTarget.value)}>
+          <option value="paragraph">Paragraph</option>
+          <option value="heading-1">Heading 1</option>
+          <option value="heading-2">Heading 2</option>
+          <option value="heading-3">Heading 3</option>
+          <option value="heading-4">Heading 4</option>
+          <option value="heading-5">Heading 5</option>
+          <option value="heading-6">Heading 6</option>
+        </select>
+      </label>
+      <button class:active-action={richCommandActive('bold', richActiveStateVersion)} aria-label="Bold" title="Bold" on:click={() => runCommand('bold')}><Icon name="bold" size={18} /></button>
+      <button class:active-action={richCommandActive('italic', richActiveStateVersion)} aria-label="Italic" title="Italic" on:click={() => runCommand('italic')}><Icon name="italic" size={18} /></button>
+      <button class:active-action={richCommandActive('underline', richActiveStateVersion)} aria-label="Underline" title="Underline" on:click={() => runCommand('underline')}><Icon name="underline" size={18} /></button>
+      <button class:active-action={richCommandActive('indent', richActiveStateVersion)} aria-label="Indent" title="Indent" on:click={() => runCommand('indent')}><Icon name="indent" size={18} /></button>
+      <button aria-label="Outdent" title="Outdent" on:click={() => runCommand('outdent')}><Icon name="outdent" size={18} /></button>
+      <button class:active-action={richCommandActive('strikethrough', richActiveStateVersion)} aria-label="Strikethrough" title="Strikethrough" on:click={() => runCommand('strikethrough')}><Icon name="strikethrough" size={18} /></button>
+      <label title="Text color" class="color-tool">
+        <span class="toolbar-glyph text-color-glyph">A</span>
+        <input type="color" bind:value={textColor} on:input={() => applyColor('color', textColor)} />
+      </label>
+      <label title="Highlight color" class="color-tool">
+        <span class="toolbar-glyph highlight-glyph">A</span>
+        <input type="color" bind:value={highlightColor} on:input={() => applyColor('highlight', highlightColor)} />
+      </label>
+      <button aria-label="Divider" title="Divider" on:click={() => runCommand('divider')}><Icon name="divider" size={18} /></button>
+      <button class:active-action={richCommandActive('quote', richActiveStateVersion)} aria-label="Quote" title="Quote" on:click={() => runCommand('quote')}><Icon name="quote" size={18} /></button>
+      <button class:active-action={richCommandActive('code-block', richActiveStateVersion)} aria-label="Code block" title="Code block" on:click={() => runCommand('code-block')}><Icon name="code" size={18} /></button>
+      <label class:active-action={richCommandActive('align-center', richActiveStateVersion) || richCommandActive('align-right', richActiveStateVersion)} class="icon-select-tool" title="Alignment">
+        <Icon name="align-left" size={18} />
+        <span class="sr-only">Alignment</span>
+        <select aria-label="Alignment" on:change={(event) => runCommand(event.currentTarget.value)}>
+          <option value="align-left">Left</option>
+          <option value="align-center">Center</option>
+          <option value="align-right">Right</option>
+        </select>
+      </label>
+      <button class:active-action={richCommandActive('table', richActiveStateVersion)} aria-label="Insert table" title="Insert table" on:click={() => runCommand('table')}><Icon name="table" size={18} /></button>
+      <button aria-label="Insert image" title="Insert image" on:click={() => runCommand('image')}><Icon name="image" size={18} /></button>
+      <button class:active-action={richCommandActive('link', richActiveStateVersion)} aria-label="Insert link" title="Insert link" on:click={() => runCommand('link')}><Icon name="link" size={18} /></button>
+      <label title="Font">
+        <span class="sr-only">Font</span>
+        <select class="plain-select" on:change={(event) => applyFont(event.currentTarget.value)}>
+          <option value="">Font</option>
+          <option value="system-ui, sans-serif">System</option>
+          <option value="Georgia, serif">Serif</option>
+          <option value="'IBM Plex Mono', monospace">Mono</option>
+          <option value="'Avenir Next', sans-serif">Avenir</option>
+        </select>
+      </label>
+    </div>
+
+    {#if selectedNote}
+      <div class:markdown-mode={editorRenderMode === 'markdown'} class="editor-workspace">
+        {#if editorRenderMode === 'rich'}
+          <div
+            bind:this={richEditorElement}
+            use:richTableHost
+            class="rich-editor-host"
+          >
+            {#if tableMenuOpen && richTableMenuStyle}
+              <div
+                class="rich-table-menu"
+                role="menu"
+                tabindex="-1"
+                style={richTableMenuStyle}
+                on:mousedown={(event) => event.preventDefault()}
+              >
+                <button role="menuitem" aria-label="Add table row" title="Add row" on:click={() => runCommand('table-add-row')}>+R</button>
+                <button role="menuitem" aria-label="Remove table row" title="Remove row" on:click={() => runCommand('table-remove-row')}>-R</button>
+                <button role="menuitem" aria-label="Add table column" title="Add column" on:click={() => runCommand('table-add-column')}>+C</button>
+                <button role="menuitem" aria-label="Remove table column" title="Remove column" on:click={() => runCommand('table-remove-column')}>-C</button>
+              </div>
+            {/if}
+          </div>
+        {:else}
+          <textarea
+            bind:this={editorElement}
+            bind:value={editorText}
+            aria-label={editorRenderMode === 'markdown' ? 'Markdown source' : 'Note text'}
+            on:input={handleEditorInput}
+            on:blur={() => void saveDocument()}
+            spellcheck="true"
+          ></textarea>
+        {/if}
+        {#if editorRenderMode === 'markdown'}
+          <article class="markdown-preview" aria-label="Markdown preview">
+            {@html renderedMarkdown}
+          </article>
+        {/if}
+      </div>
+    {:else}
+      <div class="empty-editor">No note selected</div>
+    {/if}
+
+    <footer>
+      <span>{status}</span>
+      <span>{peers.length} collaborator{peers.length === 1 ? '' : 's'}</span>
+    </footer>
+  </section>
+
+  {#if settingsOpen}
+    <AppearanceSettings {tokens} onTokensChange={updateTokens} onClose={() => settingsOpen = false} />
+  {/if}
+</main>

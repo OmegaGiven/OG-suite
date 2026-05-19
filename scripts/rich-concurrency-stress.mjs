@@ -1,0 +1,191 @@
+import { chromium } from '@playwright/test'
+
+const appUrl = 'http://localhost:5173/?stress=rich'
+const apiUrl = 'http://127.0.0.1:8080'
+const bravePath = '/Applications/Brave Browser.app/Contents/MacOS/Brave Browser'
+
+const desktopText =
+  'Desktop rich typing stays stable while the editor scrolls and collaborator updates arrive. Desktop keeps typing after the first remote merge. '
+const peerText =
+  'Peer rich typing stays stable while the editor scrolls and collaborator updates arrive. Peer keeps typing after the first remote merge. '
+const mobileText =
+  'Mobile rich typing stays stable while the editor scrolls and collaborator updates arrive. Mobile keeps typing after the first remote merge. '
+const desktopParts = ['Desktop rich typing', 'collaborator updates arrive', 'Desktop keeps typing', 'first remote merge']
+const peerParts = ['Peer rich typing', 'collaborator updates arrive', 'Peer keeps typing', 'first remote merge']
+const mobileParts = ['Mobile rich typing', 'collaborator updates arrive', 'Mobile keeps typing', 'first remote merge']
+
+const browser = await chromium.launch({ executablePath: bravePath, headless: true })
+
+try {
+  const desktopDesktop = await runScenario({
+    label: 'two-desktop',
+    firstText: desktopText,
+    secondText: peerText,
+    expectedParts: [...desktopParts, ...peerParts],
+    secondIsMobile: false,
+    secondPostScrollText: 'Peer after scroll. ',
+  })
+  const desktopMobile = await runScenario({
+    label: 'desktop-mobile',
+    firstText: desktopText,
+    secondText: mobileText,
+    expectedParts: [...desktopParts, ...mobileParts],
+    secondIsMobile: true,
+    secondPostScrollText: 'Mobile after scroll. ',
+  })
+
+  console.log(JSON.stringify({ desktopDesktop, desktopMobile }, null, 2))
+} finally {
+  await browser.close()
+}
+
+async function runScenario({ label, firstText, secondText, expectedParts, secondIsMobile, secondPostScrollText }) {
+  const title = `Rich Stress ${label} ${Date.now()}`
+  const noteResponse = await fetch(`${apiUrl}/api/v1/notes`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ title, path: '/', tags: [], initialText: '' }),
+  })
+
+  if (!noteResponse.ok) {
+    throw new Error(`Failed to create rich stress note: ${noteResponse.status} ${await noteResponse.text()}`)
+  }
+
+  const firstContext = await newRichContext({ width: 1280, height: 860 })
+  const secondContext = secondIsMobile
+    ? await newRichContext({
+        width: 390,
+        height: 844,
+        isMobile: true,
+        hasTouch: true,
+        userAgent:
+          'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
+      })
+    : await newRichContext({ width: 1180, height: 820 })
+
+  const firstPage = await firstContext.newPage()
+  const secondPage = await secondContext.newPage()
+  try {
+    const firstEditor = await openRichNote(firstPage, title)
+    const secondEditor = await openRichNote(secondPage, title, secondIsMobile)
+
+    await Promise.all([
+      firstPage.keyboard.type(firstText.repeat(5), { delay: 2 }),
+      secondPage.keyboard.type(secondText.repeat(5), { delay: 2 }),
+    ])
+
+    await Promise.all([
+      firstPage.keyboard.press('ArrowUp'),
+      secondPage.keyboard.press('ArrowUp'),
+      firstPage.mouse.wheel(0, -450),
+      secondPage.mouse.wheel(0, -450),
+    ])
+    await Promise.all([
+      firstPage.keyboard.type('Desktop after scroll. ', { delay: 2 }),
+      secondPage.keyboard.type(secondPostScrollText, { delay: 2 }),
+    ])
+
+    await waitForRichConvergence(firstEditor, secondEditor, [...expectedParts, 'Desktop after scroll. ', secondPostScrollText])
+
+    const reloadValue = await reloadAndReadRichNote(firstPage, title)
+    assertIncludes('reload', reloadValue, [...expectedParts, 'Desktop after scroll. ', secondPostScrollText])
+
+    const switchedValue = await switchModesAndReturnRich(firstPage)
+    assertIncludes('mode-switch', switchedValue, [...expectedParts, 'Desktop after scroll. ', secondPostScrollText])
+
+    const [firstValue, secondValue] = await Promise.all([firstEditor.innerText(), secondEditor.innerText()])
+    return {
+      title,
+      firstLength: firstValue.length,
+      secondLength: secondValue.length,
+      reloadLength: reloadValue.length,
+      switchedLength: switchedValue.length,
+      firstPreview: firstValue.slice(0, 180),
+      secondPreview: secondValue.slice(0, 180),
+    }
+  } finally {
+    await firstContext.close()
+    await secondContext.close()
+  }
+}
+
+async function newRichContext(options) {
+  const { width, height, ...contextOptions } = options
+  const context = await browser.newContext({ viewport: { width, height }, ...contextOptions })
+  await context.addInitScript(() => localStorage.setItem('og-suite:notes:editor-render-mode', 'rich'))
+  return context
+}
+
+async function openRichNote(page, title, mobileLayout = false) {
+  await page.goto(appUrl, { waitUntil: 'networkidle' })
+  if (mobileLayout) {
+    await page.getByRole('button', { name: 'Open files' }).click()
+  }
+  await page.getByRole('button', { name: title, exact: true }).click()
+  const editor = page.locator('.rich-editor-content')
+  await editor.click()
+  return editor
+}
+
+async function reloadAndReadRichNote(page, title) {
+  await page.reload({ waitUntil: 'networkidle' })
+  await page.getByRole('button', { name: title, exact: true }).click()
+  const editor = page.locator('.rich-editor-content')
+  await editor.waitFor()
+  return editor.innerText()
+}
+
+async function switchModesAndReturnRich(page) {
+  await page.getByRole('button', { name: 'MD', exact: true }).click()
+  await page.locator('textarea').waitFor()
+  await page.getByRole('button', { name: 'TXT', exact: true }).click()
+  await page.locator('textarea').waitFor()
+  await page.getByRole('button', { name: 'RICH', exact: true }).click()
+  const editor = page.locator('.rich-editor-content')
+  await editor.waitFor()
+  return editor.innerText()
+}
+
+async function waitForRichConvergence(firstEditor, secondEditor, expectedParts) {
+  const deadline = Date.now() + 12000
+  let firstValue = ''
+  let secondValue = ''
+  while (Date.now() < deadline) {
+    ;[firstValue, secondValue] = await Promise.all([firstEditor.innerText(), secondEditor.innerText()])
+    const firstOk = includesAll(firstValue, expectedParts)
+    const secondOk = includesAll(secondValue, expectedParts)
+    if (firstOk && secondOk) return
+    await new Promise((resolve) => setTimeout(resolve, 250))
+  }
+  throw new Error(
+    JSON.stringify(
+      {
+        message: 'Rich convergence timed out',
+        firstMissing: missingParts(firstValue, expectedParts),
+        secondMissing: missingParts(secondValue, expectedParts),
+        firstValue,
+        secondValue,
+      },
+      null,
+      2,
+    ),
+  )
+}
+
+function assertIncludes(label, value, expectedParts) {
+  const missing = missingParts(value, expectedParts)
+  if (missing.length) {
+    throw new Error(JSON.stringify({ label, missing, value }, null, 2))
+  }
+}
+
+function includesAll(value, expectedParts) {
+  return missingParts(value, expectedParts).length === 0
+}
+
+function missingParts(value, expectedParts) {
+  return expectedParts
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .filter((part) => !value.includes(part))
+}

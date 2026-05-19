@@ -1,0 +1,367 @@
+# OG Suite Implementation Checklist
+
+## Summary
+Create a clean Svelte + Tauri + Rust + Postgres app-suite foundation where apps are build-time modules that can run standalone or inside the suite. Implement Notes first as the proof of sync, local-first persistence, and concurrent CRDT editing.
+
+## Checklist
+
+### 1. Repo Foundation
+- [x] Create monorepo structure:
+  - `apps/suite`
+  - `apps/notes`
+  - `apps/audio`
+  - `apps/dump-catalog`
+  - `backend`
+  - `packages/ui`
+  - `packages/runtime`
+  - `packages/contracts`
+  - `packages/sync`
+  - `packages/crdt`
+- [x] Add shared TypeScript config, lint config, and package workspace config.
+- [x] Add Svelte + Vite baseline for `apps/suite`.
+- [x] Add standalone Svelte + Vite baseline for `apps/notes`.
+- [x] Add Rust backend baseline with health route.
+- [x] Add Postgres connection config and migration runner.
+
+### 2. Shared App Runtime
+- [x] Define `AppManifest` in `packages/runtime`.
+- [x] Define app capabilities:
+  - `offline`
+  - `remoteSave`
+  - `collaboration`
+  - `files`
+  - `media`
+- [x] Define app registration for build-time modules.
+- [x] Implement suite shell app loader.
+- [x] Implement standalone bootstrap path for Notes using the same runtime services.
+- [x] Add shared service interfaces:
+  - auth/session
+  - API client
+  - local cache
+  - sync queue
+  - theme tokens
+  - websocket presence
+
+### 3. Shared UI System
+- [x] Create design token contract in `packages/ui`.
+- [x] Support user-configurable:
+  - colors
+  - panel opacity for inner elements so panels can show the background/gradient through
+  - margins/gutters
+  - corner radius including square mode
+  - density
+  - font stack
+- [x] Build compact shell layout for mobile and desktop.
+- [x] Build toolbar primitives:
+  - desktop wrapping toolbar
+  - mobile side-swiping toolbar carousel
+  - dropdown multi-tools
+- [x] Apply tokens consistently in Suite and Notes standalone.
+
+### 4. Settings Menu
+- [x] Add settings section navigation:
+  - [x] top nav-style bar inside the settings drawer
+  - [x] Behavior section link scrolls to behavior controls
+  - [x] Appearance section link scrolls to appearance controls
+  - [x] structure allows more settings sections later
+- [x] Add behavior settings:
+  - [x] confirm before delete actions toggle
+  - [x] confirm delete applies to note deletion
+  - [x] confirm delete applies to settings delete/remove actions
+- [x] Add appearance shape and density settings:
+  - [x] margins/gutters slider
+  - [x] corner radius slider including square mode
+  - [x] density selector
+- [x] Add appearance color settings:
+  - [x] premade light mode theme option
+  - [x] premade dark mode theme option
+  - [x] custom theme option for manual appearance editing
+  - [x] saved custom themes can be created from the current appearance settings
+  - [x] saved custom themes can be reapplied later
+  - [x] themes can be exported as JSON files
+  - [x] themes can be imported from JSON files
+  - [x] accent color picker
+  - [x] background color picker
+  - [x] text color picker
+  - [x] muted text color picker
+  - [x] panel background base control
+  - [x] panel opacity control for inner elements
+- [x] Add advanced gradient appearance controls:
+  - [x] users can create multiple separate gradients
+  - [x] each gradient has its own editable settings
+  - [x] each gradient has a strength control for how strongly it appears in the background
+  - [x] each gradient can contain one or more color points
+  - [x] each color point has a color selector
+  - [x] each color point has a location picker opened from a pop-up box
+  - [x] users can click inside the location picker to set that color point position
+  - [x] adding, editing, reordering, or removing gradients immediately updates the site background
+  - [x] gradient controls write back to shared design tokens so Suite and standalone apps match
+- [x] Add background image appearance controls:
+  - [x] users can upload a background image
+  - [x] background image has its own opacity control
+  - [x] users can remove the background image
+- [x] Add typography settings:
+  - [x] font stack selector
+
+### 5. Backend Platform
+- [x] Add Rust API modules for:
+  - health
+  - auth placeholder/session model
+  - app registry
+  - sync
+  - documents
+  - notes
+  - websocket presence
+- [x] Add Postgres schema for:
+  - users/workspaces
+  - app registry
+  - note folders
+  - notes metadata
+  - CRDT documents
+  - CRDT update log
+  - sync cursors
+  - tombstones
+- [x] Add repository traits so SQLite can be supported later without changing app code.
+- [x] Add typed API contracts shared with frontend.
+
+### 6. Local-First Sync
+- [x] Implement browser local cache.
+- [x] Implement queued operation store.
+- [x] Add sync envelope types:
+  - cursors
+  - entities
+  - document updates
+  - tombstones
+  - conflicts
+- [x] Implement backend endpoints:
+  - `GET /api/v1/sync/bootstrap`
+  - `POST /api/v1/sync/pull`
+  - `POST /api/v1/sync/push`
+- [x] Implement client sync engine:
+  - bootstrap
+  - local cache restore
+  - queue writes offline
+  - flush queued writes on reconnect
+  - merge remote changes
+
+### 7. CRDT Document Layer
+- [x] Add shared CRDT document abstraction in `packages/crdt`.
+- [x] Store document snapshots and update logs on server.
+- [x] Add document APIs:
+  - `GET /api/v1/documents/:id`
+  - `POST /api/v1/documents/:id/updates`
+- [x] Add snapshot compaction policy.
+- [x] Keep presence/cursors ephemeral over websocket.
+- [x] Add websocket route:
+  - `GET /ws/presence/:documentId`
+- [ ] Upgrade document content merging to Yjs:
+  - [x] use Yjs as the Notes document CRDT engine
+  - [x] encode document snapshots as Yjs binary updates for durable storage
+  - [x] encode incremental edits as Yjs binary updates instead of whole-text replacements
+  - [x] keep note metadata sync separate from note body CRDT sync
+  - [x] preserve local-first optimistic updates through the existing sync queue
+  - [x] merge remote Yjs updates into the local document without conflict copies
+  - [x] add websocket document update rooms for live collaboration
+  - [x] persist websocket document updates on the backend before broadcasting
+  - [x] broadcast remote document updates to connected collaborators
+  - [x] apply collaborator updates into the local Notes editor in real time
+  - [x] keep websocket presence/cursors ephemeral and separate from persisted Yjs content
+  - [ ] compact accumulated updates into a fresh Yjs snapshot after the update threshold
+  - [x] disable unsafe last-update server compaction until Yjs-aware snapshot compaction exists
+  - [x] add tests for concurrent text insertion from two clients
+
+### 8. Notes Vertical Slice
+- [x] Define Notes manifest.
+- [x] Add Notes metadata model:
+  - title
+  - folder/path
+  - tags
+  - owner/workspace
+  - created/updated timestamps
+- [x] Add Notes backend routes:
+  - `GET /api/v1/note-folders`
+  - `GET /api/v1/notes`
+  - `POST /api/v1/notes`
+  - `PATCH /api/v1/notes/:id/metadata`
+  - `DELETE /api/v1/notes/:id`
+- [x] Build compact Notes UI:
+  - note list
+  - editor
+  - toolbar
+  - metadata controls
+  - mobile focuses on the editor first
+  - mobile file sidebar opens as a full-screen file view from a top-right hamburger button
+  - mobile file view closes after selecting a note
+  - mobile removes outer layout margins to maximize note-taking space
+  - mobile pins the title row and action toolbar to the top while editing
+  - mobile hides status/collaborator footer chrome
+  - mobile editor fills all remaining vertical space
+  - desktop has a draggable divider to resize the folder panel and editor
+- [x] Add note action controls:
+  - download button lives in the file area and exports only the selected note
+  - download exports the selected note as Markdown
+  - delete button lives in the file area and deletes only the selected note
+  - delete button respects the confirm-delete behavior setting
+- [x] Add Notes editor controls:
+  - undo and redo buttons are the first controls on the action bar
+  - table of contents button follows undo/redo near the beginning of the action bar
+  - heading dropdown is an icon-only `H` control with Paragraph and Heading 1-6 options
+  - font dropdown remains a plain text dropdown with System, Serif, Mono, and Avenir choices at the far right of the action bar
+  - direct formatting buttons include bold, italic, underline, and strikethrough
+  - indent and outdent sit immediately after underline
+  - text color is a colored `A` color-picker control
+  - highlight color is an `A` inside a colored box color-picker control
+  - divider, quote, and code block are direct insert/format buttons
+  - alignment is one dropdown button with Left, Center, and Right options
+  - table insert is a direct table button
+  - table formatting lives behind a hover/click three-dot menu with Add row, Remove row, Add column, and Remove column
+  - insert image prompts for image URL and alt text
+  - insert link prompts for URL and wraps selected text
+- [ ] Add live Markdown editing and rendering:
+  - [x] Keep the persisted CRDT document body as Markdown source text, not rendered HTML.
+  - [x] Add a Markdown parser/rendering pipeline:
+    - [x] use a maintained Markdown parser instead of custom regex parsing
+    - [x] support GitHub-flavored Markdown features used by the toolbar
+    - [x] support headings, paragraphs, emphasis, underline HTML, strikethrough, blockquotes, dividers, code blocks, links, images, and tables
+    - [x] sanitize rendered HTML before it reaches the DOM
+    - [x] ensure link/image URLs are validated before rendering
+  - [ ] Add editor display modes:
+    - [x] TXT mode shows the current plaintext textarea exactly as today
+    - [ ] Preview mode shows rendered Markdown and hides source editing
+    - [ ] Split mode shows source and rendered preview side by side on desktop
+    - [x] MD mode renders Markdown live while editing without losing caret position
+  - [ ] Design the desktop Markdown experience:
+    - [x] file section includes a TXT/MD mode toggle
+    - [x] Markdown mode uses source editing plus live rendered preview
+    - [x] Markdown preview uses the same panel opacity, radius, density, and typography tokens as the editor
+    - [ ] preview scroll position syncs with the source editor when practical
+    - [ ] heading table-of-contents reads from parsed Markdown headings
+    - [ ] table toolbar actions continue to update Markdown source tables
+  - [ ] Design the mobile Markdown experience:
+    - [x] default mobile mode remains focused on editing
+    - [x] mobile uses the same compact TXT/MD toggle in the file section
+    - [x] preview opens in the note area without adding outer margins
+    - [x] pinned mobile title/action bar remains fixed while preview scrolls
+    - [x] source editor still fills available vertical space in TXT mode
+  - [x] Add live-rendering caret protection:
+    - [x] source edits must not be replaced by rendered HTML
+    - [x] remote CRDT merges must not reset the local caret while typing
+    - [x] preview updates stay local and do not change source content during hundreds-of-words-per-minute typing
+    - [x] toolbar formatting commands preserve selection after inserting Markdown syntax
+  - [x] Add Markdown rendering collaboration behavior:
+    - [x] incoming collaborator edits update the rendered preview in real time
+    - [x] incoming collaborator edits merge into Markdown source without conflict copies
+    - [x] preview render state is derived locally and is never synced as document content
+    - [x] presence/cursors remain tied to Markdown source positions
+  - [x] Add Markdown import/export behavior:
+    - [x] uploaded `.md` files open as Markdown source and render in preview modes
+    - [x] uploaded `.txt` files remain plaintext but can still preview as simple Markdown paragraphs
+    - [x] downloaded notes export Markdown source, not rendered HTML
+  - [ ] Add Markdown tests:
+    - [ ] parser/render tests for toolbar-generated Markdown
+    - [ ] sanitizer tests for unsafe links, scripts, and image URLs
+    - [ ] source-to-preview mode switching preserves document content
+    - [ ] live preview updates while typing without reverting text
+    - [ ] concurrent Markdown edits from two clients merge and render correctly
+    - [ ] mobile Edit/Preview toggle preserves the selected note and scroll state
+- [x] Add rich-text collaborative editing:
+  - [x] Add a third file-section mode toggle option: `RICH` alongside `TXT` and `MD`.
+  - [x] Use a real rich-text editor engine rather than raw `contenteditable` DOM syncing:
+    - [x] use Tiptap/ProseMirror for document editing
+    - [x] use Yjs/ProseMirror binding for rich-text concurrency
+    - [x] keep browser DOM mutations out of the sync protocol
+  - [x] Store rich-text collaboration as Yjs updates:
+    - [x] use a dedicated Yjs XML fragment for rich content
+    - [x] persist rich-text Yjs updates through the existing document update log
+    - [x] broadcast rich-text Yjs updates through the existing document websocket rooms
+    - [x] keep rich-text updates compatible with local-first queueing
+  - [x] Add mode conversion behavior:
+    - [x] entering `RICH` from Markdown initializes the rich document from Markdown source
+    - [x] leaving `RICH` exports the rich document back to Markdown source
+    - [x] downloads continue exporting Markdown source
+    - [x] uploaded Markdown can initialize rich mode safely
+  - [x] Add rich editor toolbar integration:
+    - [x] existing bold/italic/underline/strikethrough controls call rich editor commands in `RICH` mode
+    - [x] heading dropdown maps to rich editor heading/paragraph nodes in `RICH` mode
+    - [x] quote, divider, code block, and link controls map to rich editor commands in `RICH` mode
+    - [x] image insertion maps to a rich editor image node
+    - [x] indent/outdent maps to rich editor list indentation
+    - [x] alignment maps to rich editor text alignment attributes
+    - [x] table insert and table formatting map to rich editor table nodes
+    - [x] text color and highlight color map to rich editor marks
+    - [x] font dropdown maps to a rich editor font-family mark
+  - [x] Add rich editor mobile behavior:
+    - [x] mobile uses the same top-pinned title/action bar
+    - [x] rich editor fills remaining vertical space
+    - [x] cursor remains stable while fast typing and scrolling
+  - [x] Add rich collaboration stress tests:
+    - [x] two desktop contexts type rich text concurrently at hundreds of words per minute
+    - [x] desktop plus mobile-sized context type rich text concurrently
+    - [x] cursor remains stable while typing and scrolling around the document
+    - [x] local rich Yjs updates are batched before queueing/broadcasting to survive fast typing
+    - [x] reload restores the rich document without conflict copies
+    - [x] switching between `TXT`, `MD`, and `RICH` does not lose content
+- [x] Add Notes sidebar organization controls:
+  - search button next to New
+  - New folder button creates a synced folder record, not just an inferred note path
+  - folder records are included in sync bootstrap/pull/push envelopes
+  - empty folders remain visible before notes are added
+  - upload button for `.txt` and `.md` files
+  - uploaded text/markdown files become notes in the selected/current folder
+- [x] Change Notes sidebar listing to file-system design language:
+  - folder rows with folder icons
+  - note rows nested under folders
+  - root-level notes shown separately from foldered notes
+  - empty folders show an `Empty` status label
+  - folder rows have a right-aligned minimize/expand control
+  - compact indentation to make hierarchy scannable
+  - selected note state uses the same accent border/background as other file rows
+  - folder paths remain compatible with sync metadata and later drag/drop organization
+- [x] Add drag-and-drop organization:
+  - [x] note rows can be dragged into folder rows
+  - [x] dropping a note on a folder updates the note `path`
+  - [x] dropping a note on Root moves it back to `/`
+  - [x] folder rows can be dragged into other folder rows
+  - [x] dropping a folder updates the folder path and all nested note paths
+  - [x] dropping a folder on Root moves it back to `/`
+  - [x] folders cannot be dropped onto themselves or their own descendants
+  - [x] drag target states use the same file-system visual language
+  - [x] path changes queue through local-first sync as note metadata updates
+- [x] Wire Notes to local-first sync.
+- [x] Wire Notes editor to CRDT updates.
+- [x] Show active collaborators/cursors through presence.
+- [x] Confirm Notes runs inside Suite and standalone from the same module.
+
+### 9. Verification
+- [x] Backend tests:
+  - health route
+  - migrations
+  - notes CRUD
+  - document update append
+  - snapshot compaction
+  - sync bootstrap/pull/push
+  - tombstone handling
+- [ ] Frontend tests:
+  - suite app registration
+  - standalone Notes bootstrap
+  - token application
+  - toolbar wrapping
+  - mobile toolbar carousel
+- [ ] Integration tests:
+  - create/edit note offline
+  - reconnect and sync queued edits
+  - two clients edit one note concurrently
+  - presence does not persist to database
+- [ ] Manual acceptance:
+  - Suite loads Notes as a module.
+  - Notes standalone uses the same backend and local cache.
+  - Notes edits survive refresh/offline restart.
+  - Notes sync remotely when connection returns.
+  - Concurrent text edits merge without conflict copies.
+
+## Assumptions
+- The implementation starts from a clean `OG-suite` repo.
+- `sweet` is reference material only, not the codebase to refactor.
+- Postgres is the v1 backend database.
+- App composition is build-time module registration, not runtime plugin loading.
+- Notes is the first complete proof before Audio Recorder or OG Dump Catalog.

@@ -1,0 +1,31 @@
+{
+  "name": "og-suite",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:suite": "npm run dev --workspace @og-suite/suite",
+    "dev:notes": "npm run dev --workspace @og-suite/notes",
+    "build": "npm run build --workspaces --if-present",
+    "check": "npm run check --workspaces --if-present",
+    "backend:dev": "cargo run --manifest-path backend/Cargo.toml",
+    "backend:test": "cargo test --manifest-path backend/Cargo.toml",
+    "stress:concurrency": "node scripts/concurrency-stress.mjs",
+    "stress:rich": "node scripts/rich-concurrency-stress.mjs",
+    "test:rich-format": "node scripts/rich-format-regression.mjs"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.60.0",
+    "@sveltejs/vite-plugin-svelte": "^5.0.0",
+    "@types/node": "^22.0.0",
+    "svelte": "^5.0.0",
+    "svelte-check": "^4.0.0",
+    "tslib": "^2.8.0",
+    "typescript": "^5.6.0",
+    "vite": "^6.0.0"
+  }
+}

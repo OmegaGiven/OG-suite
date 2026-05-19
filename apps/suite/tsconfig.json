@@ -1,0 +1,16 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["svelte", "vite/client", "node"],
+    "paths": {
+      "@og-suite/contracts": ["../../packages/contracts/src/index.ts"],
+      "@og-suite/runtime": ["../../packages/runtime/src/index.ts"],
+      "@og-suite/ui": ["../../packages/ui/src/index.ts"],
+      "@og-suite/ui/Icon": ["../../packages/ui/src/Icon.svelte"],
+      "@og-suite/notes": ["../notes/src/NotesApp.svelte"],
+      "@og-suite/notes/AppearanceSettings": ["../notes/src/AppearanceSettings.svelte"],
+      "@og-suite/notes/*": ["../notes/src/*"]
+    }
+  },
+  "include": ["src/**/*.ts", "src/**/*.svelte", "vite.config.ts", "../notes/src/**/*.svelte", "../notes/src/**/*.ts"]
+}
