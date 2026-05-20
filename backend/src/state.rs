@@ -12,8 +12,9 @@ use crate::{
     transcription::LocalTranscriptionEngine,
 };
 use chrono::{Duration, Utc};
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, path::PathBuf, sync::Arc};
 use tokio::sync::{RwLock, broadcast};
 use uuid::Uuid;
 
@@ -24,6 +25,7 @@ pub struct AppState {
     presence: Arc<RwLock<HashMap<String, PresenceRoom>>>,
     document_updates: Arc<RwLock<HashMap<String, DocumentUpdateRoom>>>,
     auth: Arc<RwLock<AuthStore>>,
+    auth_path: Option<Arc<PathBuf>>,
 }
 
 #[derive(Default)]
@@ -35,7 +37,7 @@ struct AuthStore {
     custom_role_policies: Vec<AdminRolePolicy>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Deserialize, Serialize)]
 struct AccountRecord {
     user: UserProfile,
     workspace: WorkspaceProfile,
@@ -44,6 +46,13 @@ struct AccountRecord {
     app_scopes: AppToolScope,
     created_at: chrono::DateTime<Utc>,
     updated_at: chrono::DateTime<Utc>,
+}
+
+#[derive(Default, Deserialize, Serialize)]
+struct AuthSnapshot {
+    accounts: Vec<AccountRecord>,
+    audits: Vec<AdminAuditEntry>,
+    custom_role_policies: Vec<AdminRolePolicy>,
 }
 
 #[derive(Clone)]
@@ -69,15 +78,46 @@ impl AppState {
     }
 
     pub fn with_transcription(transcription: LocalTranscriptionEngine) -> Self {
-        let mut auth = AuthStore::default();
-        seed_default_admin(&mut auth);
+        let auth_path = auth_data_path();
+        let mut auth = auth_path
+            .as_ref()
+            .and_then(|path| match load_auth_store(path) {
+                Ok(auth) => Some(auth),
+                Err(error) => {
+                    tracing::warn!(path = %path.display(), error = %error, "failed to load auth snapshot");
+                    None
+                }
+            })
+            .unwrap_or_default();
+        if auth.accounts.is_empty() {
+            seed_default_admin(&mut auth);
+        }
         Self {
             repo: InMemoryRepository::new(),
             transcription,
             presence: Arc::new(RwLock::new(HashMap::new())),
             document_updates: Arc::new(RwLock::new(HashMap::new())),
             auth: Arc::new(RwLock::new(auth)),
+            auth_path: auth_path.map(Arc::new),
         }
+    }
+
+    fn persist_auth(&self, auth: &AuthStore) -> AppResult<()> {
+        let Some(path) = &self.auth_path else {
+            return Ok(());
+        };
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|error| AppError::Database(error.to_string()))?;
+        }
+        let snapshot = AuthSnapshot::from(auth);
+        let json = serde_json::to_string_pretty(&snapshot)
+            .map_err(|error| AppError::Database(error.to_string()))?;
+        let tmp_path = path.with_extension("json.tmp");
+        std::fs::write(&tmp_path, json).map_err(|error| AppError::Database(error.to_string()))?;
+        std::fs::rename(&tmp_path, path.as_ref())
+            .map_err(|error| AppError::Database(error.to_string()))?;
+        Ok(())
     }
 
     pub async fn register_profile(
@@ -121,7 +161,9 @@ impl AppState {
             updated_at: Utc::now(),
         };
         auth.accounts.insert(username, account);
-        Ok(create_session(&mut auth, user, workspace))
+        let session = create_session(&mut auth, user, workspace);
+        self.persist_auth(&auth)?;
+        Ok(session)
     }
 
     pub async fn login(&self, request: LoginRequest) -> AppResult<AuthSession> {
@@ -196,6 +238,7 @@ impl AppState {
             "user",
             &updated_user.display_name,
         );
+        self.persist_auth(&auth)?;
 
         Ok(CurrentSession {
             user: updated_user,
@@ -394,7 +437,8 @@ impl AppState {
                 release_channel: "local".to_string(),
             },
             database: AdminDatabaseOverview {
-                backend: "postgres-compatible schema, in-memory runtime repository".to_string(),
+                backend: "durable JSON snapshots with postgres-compatible migration schema"
+                    .to_string(),
                 generated_at: Utc::now(),
                 tables,
             },
@@ -425,6 +469,7 @@ impl AppState {
         }
         auth.custom_role_policies.push(role.clone());
         push_audit(&mut auth, &actor, "Created role policy", "role", &role.name);
+        self.persist_auth(&auth)?;
         Ok(role)
     }
 
@@ -479,6 +524,7 @@ impl AppState {
             "user",
             &user.display_name,
         );
+        self.persist_auth(&auth)?;
         Ok(summary)
     }
 
@@ -515,6 +561,7 @@ impl AppState {
             "user",
             &summary.display_name,
         );
+        self.persist_auth(&auth)?;
         Ok(summary)
     }
 
@@ -558,6 +605,7 @@ impl AppState {
             "user",
             &summary.display_name,
         );
+        self.persist_auth(&auth)?;
         Ok(summary)
     }
 
@@ -642,6 +690,61 @@ impl AppState {
             let _ = room.tx.send(update);
         }
     }
+}
+
+impl From<&AuthStore> for AuthSnapshot {
+    fn from(auth: &AuthStore) -> Self {
+        Self {
+            accounts: auth.accounts.values().cloned().collect(),
+            audits: auth.audits.clone(),
+            custom_role_policies: auth.custom_role_policies.clone(),
+        }
+    }
+}
+
+impl From<AuthSnapshot> for AuthStore {
+    fn from(snapshot: AuthSnapshot) -> Self {
+        Self {
+            accounts: snapshot
+                .accounts
+                .into_iter()
+                .filter_map(|account| {
+                    account
+                        .user
+                        .username
+                        .clone()
+                        .map(|username| (username, account))
+                })
+                .collect(),
+            sessions: HashMap::new(),
+            refresh_tokens: HashMap::new(),
+            audits: snapshot.audits,
+            custom_role_policies: snapshot.custom_role_policies,
+        }
+    }
+}
+
+fn auth_data_path() -> Option<PathBuf> {
+    if let Ok(path) = std::env::var("OG_SUITE_AUTH_FILE") {
+        let trimmed = path.trim();
+        if !trimmed.is_empty() {
+            return Some(PathBuf::from(trimmed));
+        }
+    }
+    std::env::var("OG_SUITE_DATA_DIR")
+        .ok()
+        .map(|path| PathBuf::from(path).join("auth.json"))
+}
+
+fn load_auth_store(path: &PathBuf) -> AppResult<AuthStore> {
+    if !path.exists() {
+        return Ok(AuthStore::default());
+    }
+    let json =
+        std::fs::read_to_string(path).map_err(|error| AppError::Database(error.to_string()))?;
+    let snapshot = serde_json::from_str::<AuthSnapshot>(&json)
+        .map_err(|error| AppError::Database(error.to_string()))?;
+    Ok(snapshot.into())
 }
 
 fn create_session(

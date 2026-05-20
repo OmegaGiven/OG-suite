@@ -1,7 +1,11 @@
-use crate::{error::AppResult, models::*};
+use crate::{
+    error::{AppError, AppResult},
+    models::*,
+};
 use async_trait::async_trait;
 use chrono::Utc;
-use std::{collections::HashMap, sync::Arc};
+use serde::{Deserialize, Serialize};
+use std::{collections::HashMap, path::PathBuf, sync::Arc};
 use tokio::sync::RwLock;
 use uuid::Uuid;
 
@@ -76,6 +80,7 @@ pub trait SuiteRepository: Send + Sync {
 #[derive(Clone, Default)]
 pub struct InMemoryRepository {
     inner: Arc<RwLock<RepositoryData>>,
+    data_path: Option<Arc<PathBuf>>,
 }
 
 #[derive(Default)]
@@ -92,9 +97,55 @@ struct RepositoryData {
     audio_transcripts: HashMap<Uuid, AudioTranscript>,
 }
 
+#[derive(Default, Deserialize, Serialize)]
+struct RepositorySnapshot {
+    notes: Vec<Note>,
+    note_folders: Vec<NoteFolder>,
+    documents: Vec<CrdtDocumentState>,
+    tombstones: Vec<SyncTombstone>,
+    feed_events: Vec<FeedActivityEvent>,
+    feed_favorites: Vec<FeedFavorite>,
+    audio_recordings: Vec<AudioRecording>,
+    audio_folders: Vec<AudioFolder>,
+    audio_assets: Vec<(Uuid, String)>,
+    audio_transcripts: Vec<AudioTranscript>,
+}
+
 impl InMemoryRepository {
     pub fn new() -> Self {
-        Self::default()
+        let data_path = repository_data_path();
+        let data = data_path
+            .as_ref()
+            .and_then(|path| match load_repository_data(path) {
+                Ok(data) => Some(data),
+                Err(error) => {
+                    tracing::warn!(path = %path.display(), error = %error, "failed to load repository snapshot");
+                    None
+                }
+            })
+            .unwrap_or_default();
+        Self {
+            inner: Arc::new(RwLock::new(data)),
+            data_path: data_path.map(Arc::new),
+        }
+    }
+
+    fn persist_snapshot(&self, data: &RepositoryData) -> AppResult<()> {
+        let Some(path) = &self.data_path else {
+            return Ok(());
+        };
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|error| AppError::Database(error.to_string()))?;
+        }
+        let snapshot = RepositorySnapshot::from(data);
+        let json = serde_json::to_string_pretty(&snapshot)
+            .map_err(|error| AppError::Database(error.to_string()))?;
+        let tmp_path = path.with_extension("json.tmp");
+        std::fs::write(&tmp_path, json).map_err(|error| AppError::Database(error.to_string()))?;
+        std::fs::rename(&tmp_path, path.as_ref())
+            .map_err(|error| AppError::Database(error.to_string()))?;
+        Ok(())
     }
 
     pub async fn admin_database_tables(&self) -> Vec<AdminDatabaseTable> {
@@ -411,6 +462,99 @@ impl InMemoryRepository {
     }
 }
 
+impl From<&RepositoryData> for RepositorySnapshot {
+    fn from(data: &RepositoryData) -> Self {
+        Self {
+            notes: data.notes.values().cloned().collect(),
+            note_folders: data.note_folders.values().cloned().collect(),
+            documents: data.documents.values().cloned().collect(),
+            tombstones: data.tombstones.values().cloned().collect(),
+            feed_events: data.feed_events.clone(),
+            feed_favorites: data.feed_favorites.values().cloned().collect(),
+            audio_recordings: data.audio_recordings.values().cloned().collect(),
+            audio_folders: data.audio_folders.values().cloned().collect(),
+            audio_assets: data
+                .audio_assets
+                .iter()
+                .map(|(recording_id, data_url)| (*recording_id, data_url.clone()))
+                .collect(),
+            audio_transcripts: data.audio_transcripts.values().cloned().collect(),
+        }
+    }
+}
+
+impl From<RepositorySnapshot> for RepositoryData {
+    fn from(snapshot: RepositorySnapshot) -> Self {
+        Self {
+            notes: snapshot
+                .notes
+                .into_iter()
+                .map(|note| (note.id, note))
+                .collect(),
+            note_folders: snapshot
+                .note_folders
+                .into_iter()
+                .map(|folder| (folder.id, folder))
+                .collect(),
+            documents: snapshot
+                .documents
+                .into_iter()
+                .map(|document| (document.id, document))
+                .collect(),
+            tombstones: snapshot
+                .tombstones
+                .into_iter()
+                .map(|tombstone| ((tombstone.entity.clone(), tombstone.id), tombstone))
+                .collect(),
+            feed_events: snapshot.feed_events,
+            feed_favorites: snapshot
+                .feed_favorites
+                .into_iter()
+                .map(|favorite| (favorite.id, favorite))
+                .collect(),
+            audio_recordings: snapshot
+                .audio_recordings
+                .into_iter()
+                .map(|recording| (recording.id, recording))
+                .collect(),
+            audio_folders: snapshot
+                .audio_folders
+                .into_iter()
+                .map(|folder| (folder.id, folder))
+                .collect(),
+            audio_assets: snapshot.audio_assets.into_iter().collect(),
+            audio_transcripts: snapshot
+                .audio_transcripts
+                .into_iter()
+                .map(|transcript| (transcript.recording_id, transcript))
+                .collect(),
+        }
+    }
+}
+
+fn repository_data_path() -> Option<PathBuf> {
+    if let Ok(path) = std::env::var("OG_SUITE_REPOSITORY_FILE") {
+        let trimmed = path.trim();
+        if !trimmed.is_empty() {
+            return Some(PathBuf::from(trimmed));
+        }
+    }
+    std::env::var("OG_SUITE_DATA_DIR")
+        .ok()
+        .map(|path| PathBuf::from(path).join("repository.json"))
+}
+
+fn load_repository_data(path: &PathBuf) -> AppResult<RepositoryData> {
+    if !path.exists() {
+        return Ok(RepositoryData::default());
+    }
+    let json =
+        std::fs::read_to_string(path).map_err(|error| AppError::Database(error.to_string()))?;
+    let snapshot = serde_json::from_str::<RepositorySnapshot>(&json)
+        .map_err(|error| AppError::Database(error.to_string()))?;
+    Ok(snapshot.into())
+}
+
 #[async_trait]
 impl SuiteRepository for InMemoryRepository {
     async fn apps(&self) -> AppResult<Vec<AppRegistryEntry>> {
@@ -467,6 +611,7 @@ impl SuiteRepository for InMemoryRepository {
         let mut data = self.inner.write().await;
         data.documents.insert(document_id, document);
         data.notes.insert(note.id, note.clone());
+        self.persist_snapshot(&data)?;
         Ok(note)
     }
 
@@ -474,6 +619,7 @@ impl SuiteRepository for InMemoryRepository {
         let mut data = self.inner.write().await;
         data.tombstones.remove(&("notes".to_string(), note.id));
         data.notes.insert(note.id, note.clone());
+        self.persist_snapshot(&data)?;
         Ok(note)
     }
 
@@ -497,7 +643,9 @@ impl SuiteRepository for InMemoryRepository {
             note.tags = tags;
         }
         note.updated_at = Utc::now();
-        Ok(note.clone())
+        let note = note.clone();
+        self.persist_snapshot(&data)?;
+        Ok(note)
     }
 
     async fn delete_note(&self, id: Uuid) -> AppResult<()> {
@@ -514,6 +662,7 @@ impl SuiteRepository for InMemoryRepository {
                 deleted_at,
             },
         );
+        self.persist_snapshot(&data)?;
         Ok(())
     }
 
@@ -550,6 +699,7 @@ impl SuiteRepository for InMemoryRepository {
         compact_if_needed(&mut document);
         let mut data = self.inner.write().await;
         data.documents.insert(id, document.clone());
+        self.persist_snapshot(&data)?;
         Ok(document)
     }
 
@@ -576,7 +726,9 @@ impl SuiteRepository for InMemoryRepository {
         document.updates.push(update);
         document.version += 1;
         compact_if_needed(document);
-        Ok(document.clone())
+        let document = document.clone();
+        self.persist_snapshot(&data)?;
+        Ok(document)
     }
 
     async fn envelope(&self) -> AppResult<SyncEnvelope> {
@@ -633,6 +785,7 @@ impl SuiteRepository for InMemoryRepository {
                     .remove(&("documents".to_string(), document.id));
                 data.documents.insert(document.id, document);
                 data.notes.insert(note.id, note);
+                self.persist_snapshot(&data)?;
                 Ok(())
             }
             SyncOperation::UpdateNoteMetadata { note } => self.upsert_note(note).await.map(|_| ()),
@@ -649,6 +802,7 @@ impl SuiteRepository for InMemoryRepository {
                         deleted_at,
                     },
                 );
+                self.persist_snapshot(&data)?;
                 Ok(())
             }
             SyncOperation::CreateNoteFolder { folder } => {
@@ -656,6 +810,7 @@ impl SuiteRepository for InMemoryRepository {
                 data.tombstones
                     .remove(&("noteFolders".to_string(), folder.id));
                 data.note_folders.insert(folder.id, folder);
+                self.persist_snapshot(&data)?;
                 Ok(())
             }
             SyncOperation::DeleteNoteFolder { id, deleted_at } => {
@@ -671,6 +826,7 @@ impl SuiteRepository for InMemoryRepository {
                         deleted_at,
                     },
                 );
+                self.persist_snapshot(&data)?;
                 Ok(())
             }
             SyncOperation::AppendDocumentUpdate { update } => {
@@ -694,6 +850,7 @@ impl SuiteRepository for InMemoryRepository {
     async fn append_feed_event(&self, event: FeedActivityEvent) -> AppResult<FeedActivityEvent> {
         let mut data = self.inner.write().await;
         data.feed_events.push(event.clone());
+        self.persist_snapshot(&data)?;
         Ok(event)
     }
 
@@ -731,12 +888,14 @@ impl SuiteRepository for InMemoryRepository {
             created_at: Utc::now(),
         };
         data.feed_favorites.insert(favorite.id, favorite.clone());
+        self.persist_snapshot(&data)?;
         Ok(favorite)
     }
 
     async fn delete_feed_favorite(&self, id: Uuid) -> AppResult<()> {
         let mut data = self.inner.write().await;
         data.feed_favorites.remove(&id);
+        self.persist_snapshot(&data)?;
         Ok(())
     }
 
@@ -792,6 +951,7 @@ impl SuiteRepository for InMemoryRepository {
             deleted_at: None,
         };
         data.audio_folders.insert(folder.id, folder.clone());
+        self.persist_snapshot(&data)?;
         Ok(folder)
     }
 
@@ -802,6 +962,7 @@ impl SuiteRepository for InMemoryRepository {
             folder.deleted_at = Some(deleted_at);
             folder.updated_at = deleted_at;
         }
+        self.persist_snapshot(&data)?;
         Ok(())
     }
 
@@ -828,6 +989,7 @@ impl SuiteRepository for InMemoryRepository {
         let mut data = self.inner.write().await;
         data.audio_recordings
             .insert(recording.id, recording.clone());
+        self.persist_snapshot(&data)?;
         Ok(recording)
     }
 
@@ -858,7 +1020,9 @@ impl SuiteRepository for InMemoryRepository {
             recording.path = normalize_folder_path(&path);
         }
         recording.updated_at = Utc::now();
-        Ok(recording.clone())
+        let recording = recording.clone();
+        self.persist_snapshot(&data)?;
+        Ok(recording)
     }
 
     async fn upload_audio(
@@ -897,6 +1061,7 @@ impl SuiteRepository for InMemoryRepository {
                 updated_at: now,
             },
         );
+        self.persist_snapshot(&data)?;
         Ok(recording)
     }
 
@@ -925,6 +1090,7 @@ impl SuiteRepository for InMemoryRepository {
                 deleted_at,
             },
         );
+        self.persist_snapshot(&data)?;
         Ok(())
     }
 
@@ -959,6 +1125,7 @@ impl SuiteRepository for InMemoryRepository {
             };
             recording.updated_at = Utc::now();
         }
+        self.persist_snapshot(&data)?;
         Ok(transcript)
     }
 
@@ -974,7 +1141,9 @@ impl SuiteRepository for InMemoryRepository {
             .ok_or(crate::error::AppError::NotFound)?;
         recording.status = status.to_string();
         recording.updated_at = Utc::now();
-        Ok(recording.clone())
+        let recording = recording.clone();
+        self.persist_snapshot(&data)?;
+        Ok(recording)
     }
 }
 

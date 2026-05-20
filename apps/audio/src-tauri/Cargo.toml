@@ -3,6 +3,10 @@ name = "og-audio"
 version = "0.1.0"
 edition = "2024"
 
+[lib]
+name = "og_audio_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 

@@ -10,6 +10,7 @@
   },
   "scripts": {
     "dev": "vite --host 0.0.0.0 --port 5175",
+    "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
     "build": "vite build",

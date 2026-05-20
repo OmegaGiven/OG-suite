@@ -1,5 +1,3 @@
 fn main() {
-    tauri::Builder::default()
-        .run(tauri::generate_context!())
-        .expect("error while running OG Audio");
+    og_audio_lib::run();
 }

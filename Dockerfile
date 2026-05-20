@@ -20,5 +20,6 @@ COPY --from=backend /app/backend/target/release/og-suite-backend /usr/local/bin/
 COPY --from=web /app/apps/suite/dist /app/public
 ENV OG_SUITE_BIND=0.0.0.0:8080
 ENV OG_SUITE_STATIC_DIR=/app/public
+ENV OG_SUITE_DATA_DIR=/app/data
 EXPOSE 8080
 CMD ["og-suite-backend"]

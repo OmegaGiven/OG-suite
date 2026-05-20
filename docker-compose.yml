@@ -2,11 +2,17 @@ services:
   og-suite:
     build:
       context: .
-    image: og-suite:0.1.0
+    image: og-suite:0.1.1
     container_name: og-suite
     restart: unless-stopped
     environment:
       OG_SUITE_BIND: 0.0.0.0:8080
       OG_SUITE_STATIC_DIR: /app/public
+      OG_SUITE_DATA_DIR: /app/data
     ports:
       - "8080:8080"
+    volumes:
+      - og-suite-data:/app/data
+
+volumes:
+  og-suite-data:
