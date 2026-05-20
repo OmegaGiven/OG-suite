@@ -16,16 +16,28 @@ body {
   place-items: center;
   min-height: 100vh;
   padding: var(--page-gutter, 16px);
+  background:
+    radial-gradient(circle at top left, rgb(24 45 73 / 28%), transparent 42%),
+    radial-gradient(circle at top right, rgb(10 75 56 / 22%), transparent 38%),
+    var(--bg, var(--og-bg, #09111b));
+  color: var(--text, var(--og-text, #edf5fb));
 }
 
 .standalone-auth-card {
+  --standalone-auth-text: var(--text, var(--og-text, #edf5fb));
+  --standalone-auth-muted: var(--muted, var(--og-muted, #9aabbe));
+  --standalone-auth-surface: var(--panel-surface, var(--og-surface, rgb(22 32 45 / 92%)));
+  --standalone-auth-subtle: var(--surface-subtle, var(--og-surface-subtle, rgb(255 255 255 / 8%)));
+  --standalone-auth-border: var(--border, var(--og-border, rgb(255 255 255 / 14%)));
+
   display: grid;
   gap: 12px;
   width: min(420px, 100%);
   padding: 18px;
-  border: 1px solid var(--border, var(--og-border));
+  border: 1px solid var(--standalone-auth-border);
   border-radius: var(--panel-radius, var(--og-radius));
-  background: var(--panel-surface, var(--og-surface));
+  background: var(--standalone-auth-surface);
+  color: var(--standalone-auth-text);
   box-shadow: var(--shadow, var(--og-shadow));
 }
 
@@ -37,17 +49,17 @@ body {
 .standalone-auth-card label {
   display: grid;
   gap: 6px;
-  color: var(--muted, var(--og-muted));
+  color: var(--standalone-auth-muted);
   font-size: 12px;
   font-weight: 800;
 }
 
 .standalone-auth-card input {
   min-height: 38px;
-  border: 1px solid var(--border, var(--og-border));
+  border: 1px solid var(--standalone-auth-border);
   border-radius: var(--field-radius, var(--og-field-radius));
-  background: var(--surface-subtle, var(--og-surface-subtle));
-  color: var(--text, var(--og-text));
+  background: var(--standalone-auth-subtle);
+  color: var(--standalone-auth-text);
   padding: 8px 10px;
 }
 
