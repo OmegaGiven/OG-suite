@@ -1,13 +1,10 @@
 <script lang="ts" context="module">
-  export type MobileSuiteNavItem = {
-    id: string
-    name: string
-    disabled?: boolean
-  }
+  export type { MobileSuiteNavItem } from './MobileSuiteTopBar.svelte'
 </script>
 
 <script lang="ts">
-  import Icon from './Icon.svelte'
+  import MobileSuiteTopBar from './MobileSuiteTopBar.svelte'
+  import type { MobileSuiteNavItem } from './MobileSuiteTopBar.svelte'
 
   export let navItems: MobileSuiteNavItem[] = []
   export let activeAppId = ''
@@ -32,47 +29,21 @@
 <div class:open class={`mobile-suite-menu mobile-suite-menu-${align}`}>
   <button
     class="mobile-suite-menu-trigger"
-    aria-label="Open menu"
+    aria-label={open ? 'Close menu' : 'Open menu'}
     aria-expanded={open}
     title="Menu"
-    on:click={() => open = true}
+    on:click={() => open = !open}
   >
     <span aria-hidden="true"></span>
   </button>
 
   {#if open}
     <button class="mobile-suite-menu-backdrop" aria-label="Close menu" on:click={() => open = false}></button>
-    <aside class="mobile-suite-menu-drawer" aria-label={title}>
-      <header>
-        <strong>{title}</strong>
-        <button aria-label="Close menu" on:click={() => open = false}>
-          <Icon name="collapse" size={18} />
-        </button>
-      </header>
-
-      {#if navItems.length}
-        <nav aria-label="Suite apps">
-          {#each navItems as item}
-            <button
-              class:active={activeAppId === item.id}
-              disabled={item.disabled}
-              aria-current={activeAppId === item.id ? 'page' : undefined}
-              on:click={() => selectApp(item.id)}
-            >
-              {item.name}
-            </button>
-          {/each}
-        </nav>
-      {/if}
+    <aside class="mobile-suite-menu-drawer" aria-label={`${title} navigation`}>
+      <MobileSuiteTopBar {navItems} {activeAppId} onSelectApp={selectApp} onOpenSettings={onOpenSettings ? openSettings : undefined} onClose={() => open = false} />
 
       <div class="mobile-suite-menu-tools">
         <slot />
-        {#if onOpenSettings}
-          <button class="mobile-suite-menu-tool" on:click={openSettings}>
-            <Icon name="settings" size={16} />
-            <span>Settings</span>
-          </button>
-        {/if}
       </div>
     </aside>
   {/if}
@@ -85,6 +56,8 @@
 
   @media (max-width: 760px) {
     .mobile-suite-menu {
+      position: relative;
+      z-index: 90;
       display: inline-flex;
       align-items: center;
       justify-content: center;
@@ -100,6 +73,7 @@
     }
 
     :global(.feed-app:has(.mobile-suite-menu.open)),
+    :global(.notes-app:has(.mobile-suite-menu.open)),
     :global(.audio-app:has(.mobile-suite-menu.open)),
     :global(.files-app:has(.mobile-suite-menu.open)),
     :global(.suite-content:has(.mobile-suite-menu.open)),
@@ -107,6 +81,13 @@
     :global(.recorder-panel:has(.mobile-suite-menu.open)) {
       position: relative;
       z-index: 2147483000;
+    }
+
+    :global(.feed-hero:has(.mobile-suite-menu.open)),
+    :global(.files-library:has(.mobile-suite-menu.open)),
+    :global(.og-action-bar:has(.mobile-suite-menu.open)),
+    :global(.recorder-panel:has(.mobile-suite-menu.open)) {
+      backdrop-filter: none !important;
     }
 
     .mobile-suite-menu-right {
@@ -156,6 +137,10 @@
       top: 5px;
     }
 
+    .mobile-suite-menu.open .mobile-suite-menu-trigger {
+      display: none;
+    }
+
     .mobile-suite-menu-backdrop {
       position: fixed;
       inset: 0;
@@ -174,75 +159,68 @@
       inset: 0;
       z-index: 2147483002;
       display: grid;
-      align-content: start;
-      gap: 10px;
+      grid-template-rows: auto minmax(0, 1fr) auto;
+      align-content: stretch;
+      gap: 8px;
       width: 100vw;
       height: 100vh;
       max-height: none;
       padding: max(10px, env(safe-area-inset-top)) 10px calc(10px + env(safe-area-inset-bottom));
       border: 0;
-      background: color-mix(in srgb, var(--nav-bg, var(--og-nav-bg)) 96%, var(--surface, var(--og-surface)) 4%);
+      background: var(--panel-surface, var(--og-surface));
+      color: var(--text, var(--og-text));
       box-shadow: var(--shadow, var(--og-shadow));
+      backdrop-filter: blur(18px);
       overflow: auto;
       pointer-events: auto;
     }
 
-    .mobile-suite-menu-drawer header,
-    .mobile-suite-menu-drawer nav,
     .mobile-suite-menu-tools {
       display: flex;
       align-items: center;
       gap: 6px;
     }
 
-    .mobile-suite-menu-drawer header {
-      justify-content: space-between;
-      min-height: 34px;
-      color: var(--text, var(--og-text));
+    .mobile-suite-menu-tools {
+      grid-row: 2;
+      align-self: start;
     }
 
-    .mobile-suite-menu-drawer header button {
-      width: 34px;
-      min-width: 34px;
-      height: 34px;
-      min-height: 34px;
-      padding: 0;
-    }
-
-    .mobile-suite-menu-drawer nav,
     .mobile-suite-menu-tools {
       flex-wrap: wrap;
-      padding: 6px;
-      border: 1px solid color-mix(in srgb, var(--border, var(--og-border)) 78%, transparent);
-      border-radius: var(--field-radius, var(--og-field-radius));
-      background: color-mix(in srgb, var(--surface-strong, var(--og-surface-strong)) 46%, transparent);
     }
 
-    .mobile-suite-menu-drawer nav button,
-    .mobile-suite-menu-tool,
-    .mobile-suite-menu-tools :global(button) {
+    .mobile-suite-menu-tools {
+      border: 1px solid color-mix(in srgb, var(--border, var(--og-border)) 78%, transparent);
+      border-radius: var(--field-radius, var(--og-field-radius));
+      background: var(--action-bar-bg, var(--og-action-bar-bg));
+    }
+
+    .mobile-suite-menu-tools {
+      padding: 4px;
+    }
+
+    .mobile-suite-menu-tools > :global(button) {
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      gap: 7px;
-      min-height: 30px;
+      gap: 6px;
+      min-height: 28px;
+      height: 28px;
+      min-width: 72px;
       border: 0;
       border-radius: calc(var(--field-radius, var(--og-field-radius)) - 2px);
       background: transparent;
       color: var(--muted, var(--og-muted));
       padding: 0 10px;
-      font-size: 0.8rem;
+      font-size: 0.78rem;
       font-weight: 900;
       letter-spacing: 0;
+      flex: 0 0 auto;
     }
 
-    .mobile-suite-menu-drawer nav button.active,
-    .mobile-suite-menu-drawer nav button:hover:not(:disabled),
-    .mobile-suite-menu-drawer nav button:focus-visible,
-    .mobile-suite-menu-tool:hover,
-    .mobile-suite-menu-tool:focus-visible,
-    .mobile-suite-menu-tools :global(button:hover:not(:disabled)),
-    .mobile-suite-menu-tools :global(button:focus-visible) {
+    .mobile-suite-menu-tools > :global(button:hover:not(:disabled)),
+    .mobile-suite-menu-tools > :global(button:focus-visible) {
       background: color-mix(in srgb, var(--accent-soft, var(--og-accent-soft)) 64%, transparent);
       color: var(--text, var(--og-text));
       outline: none;

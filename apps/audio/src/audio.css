@@ -309,6 +309,10 @@ button:disabled {
   grid-area: library;
 }
 
+.mobile-library-menu {
+  display: none;
+}
+
 .transcript-panel {
   grid-area: transcript;
 }
@@ -369,24 +373,108 @@ button:disabled {
 
 @media (max-width: 760px) {
   .audio-app {
-    grid-template-areas: none;
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: none;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
     min-height: 100vh;
     padding: 0;
+    overflow: hidden;
   }
 
-  .recorder-panel,
-  .library-panel,
+  .recorder-panel {
+    order: 1;
+    flex: 0 0 auto;
+    justify-content: flex-start;
+    gap: 10px;
+    min-height: 0;
+    padding: max(10px, env(safe-area-inset-top)) 10px 12px;
+  }
+
+  .library-panel {
+    display: none;
+  }
+
   .transcript-panel {
-    order: initial;
+    order: 2;
+    flex: 1 1 auto;
+    overflow: auto;
   }
 
   .recorder-panel,
-  .library-panel,
   .transcript-panel {
     border-left: 0;
     border-right: 0;
     border-radius: 0;
+  }
+
+  .recorder-panel {
+    border: 0;
+  }
+
+  .recorder-heading {
+    min-height: 52px;
+    justify-content: space-between;
+    padding: 4px 3px 4px 4px;
+    border: 1px solid color-mix(in srgb, var(--border, var(--og-border)) 78%, transparent);
+    border-radius: var(--field-radius, var(--og-field-radius));
+    background: var(--action-bar-bg, var(--og-action-bar-bg));
+  }
+
+  .recorder-heading-actions {
+    width: 100%;
+    justify-content: space-between;
+    gap: 8px;
+    margin-left: 0;
+  }
+
+  .recording-light {
+    margin-left: 9px;
+  }
+
+  .timer {
+    font-size: clamp(42px, 16vw, 64px);
+    line-height: 1;
+  }
+
+  .input-meter {
+    width: min(76vw, 220px);
+    height: 76px;
+  }
+
+  .input-meter span:first-child {
+    left: 38px;
+  }
+
+  .input-meter span:last-child {
+    right: 38px;
+  }
+
+  .behavior-row,
+  .sync-row,
+  .upload-action {
+    display: none;
+  }
+
+  .mobile-library-menu {
+    display: grid;
+    gap: 10px;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .mobile-library-menu .library-action-bar {
+    margin-bottom: 0;
+  }
+
+  .mobile-library-menu .library-search {
+    margin-bottom: 0;
+  }
+
+  .transcript-title {
+    gap: 10px;
+  }
+
+  .transcript-title .panel-actions {
+    justify-content: flex-start;
   }
 }

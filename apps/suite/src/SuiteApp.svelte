@@ -16,6 +16,14 @@
 
   export let services: RuntimeServices
 
+  type SuiteOpenTarget = {
+    appId: string
+    targetKind: string
+    targetId: string
+    targetLabel: string
+    requestId: number
+  }
+
   const apps = [
     {
       ...registerApp(feedManifest),
@@ -38,6 +46,7 @@
   let activeAppId = apps[0].manifest.id
   let settingsOpen = false
   let tokens = services.tokens
+  let openTarget: SuiteOpenTarget | null = null
   $: activeApp = apps.find((app) => app.manifest.id === activeAppId) ?? apps[0]
   $: suiteNavItems = [
     ...apps.map((app) => ({ id: app.manifest.id, name: app.manifest.name })),
@@ -54,6 +63,13 @@
 
   function selectApp(appId: string) {
     activeAppId = appId
+  }
+
+  function openActivityTarget(target: SuiteOpenTarget) {
+    if (apps.some((app) => app.manifest.id === target.appId)) {
+      activeAppId = target.appId
+    }
+    openTarget = { ...target, requestId: Date.now() }
   }
 </script>
 
@@ -87,8 +103,10 @@
       mode="suite"
       {suiteNavItems}
       activeSuiteAppId={activeAppId}
+      {openTarget}
       onSuiteAppSelect={selectApp}
       onOpenSuiteSettings={() => settingsOpen = true}
+      onOpenActivityTarget={openActivityTarget}
     />
   </section>
 

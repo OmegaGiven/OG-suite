@@ -28,6 +28,7 @@
   import * as Y from 'yjs'
   import ActionBar from '@og-suite/ui/ActionBar'
   import Icon from '@og-suite/ui/Icon'
+  import MobileSuiteTopBar from '@og-suite/ui/MobileSuiteTopBar'
   import { applyTokens, saveStoredTokens } from '@og-suite/ui'
   import AppearanceSettings from './AppearanceSettings.svelte'
 
@@ -45,6 +46,13 @@
     name: string
     disabled?: boolean
   }
+  type SuiteOpenTarget = {
+    appId: string
+    targetKind: string
+    targetId: string
+    targetLabel: string
+    requestId: number
+  }
 
   export let services: RuntimeServices
   export let mode: 'suite' | 'standalone' = 'standalone'
@@ -52,6 +60,7 @@
   export let activeSuiteAppId = ''
   export let onSuiteAppSelect: ((appId: string) => void) | undefined = undefined
   export let onOpenSuiteSettings: (() => void) | undefined = undefined
+  export let openTarget: SuiteOpenTarget | null = null
 
   let envelope: SyncEnvelope | null = null
   let selectedNoteId = ''
@@ -107,6 +116,7 @@
   let mobileFilesOpen = false
   let sidebarWidth = 280
   let resizingSidebar = false
+  let handledOpenTargetKey = ''
   let editorRenderMode: EditorRenderMode = loadEditorRenderMode()
   const turndown = new TurndownService({ headingStyle: 'atx', codeBlockStyle: 'fenced' })
 
@@ -169,6 +179,9 @@
 
   $: if (selectedNote && selectedNote.id !== selectedNoteId) {
     selectNote(selectedNote)
+  }
+  $: if (openTarget?.appId === 'notes' && envelope) {
+    void openSuiteTarget(openTarget, notes.length, envelope.documents.length)
   }
   $: saveIndicatorState = getSaveIndicatorState(status)
   $: saveIndicatorLabel = saveIndicatorState === 'saved'
@@ -240,6 +253,40 @@
     unsubscribeDocumentUpdates = services.documentUpdates.connect(note.documentId, applyRemoteDocumentUpdate)
     void refreshSelectedDocumentFromServer(note.documentId)
     mobileFilesOpen = false
+  }
+
+  async function openSuiteTarget(target: SuiteOpenTarget, _noteCount: number, _documentCount: number) {
+    const key = `${target.requestId}:${target.appId}:${target.targetKind}:${target.targetId}`
+    if (handledOpenTargetKey === key) return
+    handledOpenTargetKey = key
+
+    if (target.targetKind === 'folder') {
+      selectFolder(target.targetLabel)
+      status = `Opened folder ${target.targetLabel}`
+      mobileFilesOpen = false
+      return
+    }
+
+    let note = findNoteForTarget(target)
+    if (!note && ['note', 'document'].includes(target.targetKind)) {
+      await tryFlushAndPull()
+      note = findNoteForTarget(target)
+    }
+
+    if (note) {
+      selectNote(note)
+      activeFolderPath = normalizeFolderPath(note.path)
+      status = `Opened ${note.title}`
+    } else {
+      status = `Could not find ${target.targetLabel}`
+    }
+    mobileFilesOpen = false
+  }
+
+  function findNoteForTarget(target: SuiteOpenTarget) {
+    if (target.targetKind === 'note') return notes.find((note) => note.id === target.targetId) ?? null
+    if (target.targetKind === 'document') return notes.find((note) => note.documentId === target.targetId) ?? null
+    return null
   }
 
   function selectSuiteApp(appId: string) {
@@ -1663,26 +1710,16 @@
   <aside class:mobile-open={mobileFilesOpen} class="notes-list" aria-label="Notes">
     <div class="notes-list-panel">
       {#if mode === 'suite'}
-        <nav class="mobile-suite-app-switcher" aria-label="Suite apps">
-          {#each suiteNavItems as item}
-            <button
-              class:active={activeSuiteAppId === item.id}
-              disabled={item.disabled}
-              aria-current={activeSuiteAppId === item.id ? 'page' : undefined}
-              on:click={() => selectSuiteApp(item.id)}
-            >
-              {item.name}
-            </button>
-          {/each}
-          <button
-            class="mobile-suite-settings-button"
-            aria-label="Open settings"
-            title="Settings"
-            on:click={openSuiteSettings}
-          >
-            <Icon name="settings" size={16} />
-          </button>
-        </nav>
+        <MobileSuiteTopBar
+          navItems={suiteNavItems}
+          activeAppId={activeSuiteAppId}
+          onSelectApp={selectSuiteApp}
+          onOpenSettings={() => {
+            openSuiteSettings()
+            mobileFilesOpen = false
+          }}
+          onClose={() => mobileFilesOpen = false}
+        />
       {/if}
 
       <div class="panel-title">
@@ -1897,9 +1934,6 @@
         <div class="empty-tree">No matching notes</div>
       {/if}
     </div>
-    <button class="mobile-files-close" aria-label="Close files" title="Close files" on:click={() => mobileFilesOpen = false}>
-      Close
-    </button>
   </aside>
 
   <div

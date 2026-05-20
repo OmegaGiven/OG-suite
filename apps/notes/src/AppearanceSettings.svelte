@@ -244,9 +244,8 @@
     <div>
       <h2>Settings</h2>
     </div>
-    <button class="settings-close icon-label-button" aria-label="Close settings" on:click={onClose}>
-      <Icon name="collapse" size={18} />
-      <span>Close</span>
+    <button class="settings-close" aria-label="Close settings" title="Close settings" on:click={onClose}>
+      <span aria-hidden="true"></span>
     </button>
   </header>
 

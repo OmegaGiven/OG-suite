@@ -10,6 +10,7 @@ const alias = [
   { find: '@og-suite/runtime', replacement: fileURLToPath(new URL('../../packages/runtime/src/index.ts', import.meta.url)) },
   { find: '@og-suite/ui/FileNavigator', replacement: fileURLToPath(new URL('../../packages/ui/src/FileNavigator.svelte', import.meta.url)) },
   { find: '@og-suite/ui/MobileSuiteMenu', replacement: fileURLToPath(new URL('../../packages/ui/src/MobileSuiteMenu.svelte', import.meta.url)) },
+  { find: '@og-suite/ui/MobileSuiteTopBar', replacement: fileURLToPath(new URL('../../packages/ui/src/MobileSuiteTopBar.svelte', import.meta.url)) },
   { find: '@og-suite/ui', replacement: fileURLToPath(new URL('../../packages/ui/src/index.ts', import.meta.url)) },
 ]
 

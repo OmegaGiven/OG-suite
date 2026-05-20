@@ -23,11 +23,20 @@
   export let activeSuiteAppId = ''
   export let onSuiteAppSelect: ((appId: string) => void) | undefined = undefined
   export let onOpenSuiteSettings: (() => void) | undefined = undefined
+  export let openTarget: SuiteOpenTarget | null = null
 
   type SuiteNavItem = {
     id: string
     name: string
     disabled?: boolean
+  }
+
+  type SuiteOpenTarget = {
+    appId: string
+    targetKind: string
+    targetId: string
+    targetLabel: string
+    requestId: number
   }
 
   type LocalAudioDraft = {
@@ -73,6 +82,7 @@
   let searchOpen = false
   let searchQuery = ''
   let uploadInputElement: HTMLInputElement | null = null
+  let handledOpenTargetKey = ''
 
   $: selectedRecording = recordings.find((recording) => recording.id === selectedRecordingId) ?? recordings[0]
   $: recorderOnly = mode === 'standalone'
@@ -111,6 +121,9 @@
     ? folders.filter((folder) => isSameOrNestedPath(folder.path, selectedFolderPath))
     : []
   $: selectedFolderCanDelete = Boolean(selectedAudioFolder && selectedFolderRecordings.length === 0)
+  $: if (openTarget?.appId === 'audio') {
+    void openSuiteTarget(openTarget, recordings.length)
+  }
 
   onMount(() => {
     clearBackedUpLocalAudio = localStorage.getItem(clearBackedUpKey) !== 'false'
@@ -224,6 +237,28 @@
     selectedRecordingId = id
     selectedFolderPath = ''
     void loadTranscript(id)
+  }
+
+  async function openSuiteTarget(target: SuiteOpenTarget, _recordingCount: number) {
+    const key = `${target.requestId}:${target.appId}:${target.targetKind}:${target.targetId}`
+    if (handledOpenTargetKey === key) return
+    handledOpenTargetKey = key
+
+    if (target.targetKind !== 'recording') return
+    let recording = recordings.find((item) => item.id === target.targetId)
+    if (!recording) {
+      await refreshRecordings()
+      recording = recordings.find((item) => item.id === target.targetId)
+    }
+    if (recording) {
+      selectedRecordingId = recording.id
+      selectedFolderPath = ''
+      activeFolderPath = normalizeFolderPath(recording.path)
+      await loadTranscript(recording.id)
+      statusMessage = `Opened ${recording.title}.`
+    } else {
+      statusMessage = `Could not find ${target.targetLabel}.`
+    }
   }
 
   function toggleFolder(path: string) {
@@ -652,18 +687,44 @@
             onOpenSettings={onOpenSuiteSettings}
           >
             {#if !recorderOnly}
-              <button on:click={() => searchOpen = !searchOpen}>
-                <Icon name="search" size={16} />
-                <span>Search</span>
-              </button>
-              <button on:click={createFolder}>
-                <Icon name="new-folder" size={16} />
-                <span>New folder</span>
-              </button>
-              <button on:click={triggerUpload}>
-                <Icon name="upload" size={16} />
-                <span>Upload</span>
-              </button>
+              <div class="mobile-library-menu">
+                <ActionBar ariaLabel="Recording file actions" className="panel-actions library-action-bar">
+                  <ActionButton icon="search" label="Search" iconOnly on:click={() => searchOpen = !searchOpen} />
+                  <ActionButton icon="new-folder" label="New folder" iconOnly on:click={createFolder} />
+                  <ActionButton icon="upload" label="Upload" iconOnly on:click={triggerUpload} />
+                  <ActionButton icon="rename" label="Rename selected recording" iconOnly disabled={Boolean(selectedFolderPath) || !selectedRecording} on:click={beginRenameSelectedRecording} />
+                  <ActionButton icon="download" label="Download selected recording" iconOnly disabled={Boolean(selectedFolderPath) || !selectedRecording?.assetRef} on:click={downloadSelectedRecording} />
+                  <ActionButton
+                    icon="delete"
+                    label={selectedFolderPath ? 'Delete selected empty folder' : 'Delete selected recording'}
+                    iconOnly
+                    tone="danger"
+                    disabled={selectedFolderPath ? !selectedFolderCanDelete : !selectedRecording}
+                    on:click={deleteSelectedAudioItem}
+                  />
+                  <ActionButton icon="refresh" label="Refresh" iconOnly on:click={refreshRecordings} />
+                </ActionBar>
+                {#if searchOpen}
+                  <label class="library-search">
+                    <Icon name="search" size={16} />
+                    <input bind:value={searchQuery} type="search" placeholder="Search recordings" aria-label="Search recordings" />
+                  </label>
+                {/if}
+                <FileNavigator
+                  folders={navigatorFolders}
+                  items={navigatorItems}
+                  selectedItemId={selectedRecordingId}
+                  {activeFolderPath}
+                  {selectedFolderPath}
+                  {collapsedFolderPaths}
+                  itemLabel="recording"
+                  onSelectItem={selectRecording}
+                  onSelectFolder={selectFolder}
+                  onMoveItem={moveRecording}
+                  onMoveFolder={moveFolder}
+                  onToggleFolder={toggleFolder}
+                />
+              </div>
             {/if}
             <button on:click={syncLocalDrafts} disabled={!localDrafts.some((draft) => !draft.backedUpRecordingId)}>
               <Icon name="sync" size={16} />

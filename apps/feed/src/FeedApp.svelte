@@ -11,12 +11,21 @@
     disabled?: boolean
   }
 
+  type SuiteOpenTarget = {
+    appId: string
+    targetKind: FeedActivityEvent['targetKind']
+    targetId: string
+    targetLabel: string
+    requestId: number
+  }
+
   export let services: RuntimeServices
   export let mode: 'suite' | 'standalone' = 'suite'
   export let suiteNavItems: SuiteNavItem[] = []
   export let activeSuiteAppId = ''
   export let onSuiteAppSelect: ((appId: string) => void) | undefined = undefined
   export let onOpenSuiteSettings: (() => void) | undefined = undefined
+  export let onOpenActivityTarget: ((target: SuiteOpenTarget) => void) | undefined = undefined
 
   let activities: FeedActivityEvent[] = []
   let favorites: FeedFavorite[] = []
@@ -73,6 +82,20 @@
 
   function canFavorite(activity: FeedActivityEvent) {
     return ['note', 'folder', 'document', 'tool', 'recording'].includes(activity.targetKind)
+  }
+
+  function canOpen(activity: FeedActivityEvent) {
+    return Boolean(activity.appId)
+  }
+
+  function openActivity(activity: FeedActivityEvent) {
+    onOpenActivityTarget?.({
+      appId: activity.appId,
+      targetKind: activity.targetKind,
+      targetId: activity.targetId,
+      targetLabel: activity.targetLabel,
+      requestId: Date.now(),
+    })
   }
 
   function formatTime(value: string) {
@@ -173,16 +196,27 @@
                 <span>{activity.targetKind}: {activity.targetLabel}</span>
               </div>
             </div>
-            {#if canFavorite(activity)}
-              <button
-                class="icon-action"
-                aria-label={`Favorite ${activity.targetLabel}`}
-                disabled={favoriteKeys.has(favoriteKey(activity.targetKind, activity.targetId))}
-                on:click={() => addFavorite(favoriteFromActivity(activity))}
-              >
-                <Icon name="star" size={15} />
-              </button>
-            {/if}
+            <div class="timeline-actions">
+              {#if canOpen(activity)}
+                <button
+                  class="icon-action"
+                  aria-label={`Open ${activity.targetLabel}`}
+                  on:click={() => openActivity(activity)}
+                >
+                  <Icon name="open" size={15} />
+                </button>
+              {/if}
+              {#if canFavorite(activity)}
+                <button
+                  class="icon-action"
+                  aria-label={`Favorite ${activity.targetLabel}`}
+                  disabled={favoriteKeys.has(favoriteKey(activity.targetKind, activity.targetId))}
+                  on:click={() => addFavorite(favoriteFromActivity(activity))}
+                >
+                  <Icon name="star" size={15} />
+                </button>
+              {/if}
+            </div>
           </li>
         {:else}
           <li class="empty-copy">No public activity yet. Edits and file actions will appear here after they reach the server.</li>
@@ -372,14 +406,24 @@
     min-width: 0;
   }
 
+  .timeline-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 6px;
+    min-width: max-content;
+  }
+
   .timeline-topline {
     display: flex;
     align-items: baseline;
     justify-content: space-between;
     gap: 12px;
+    min-width: 0;
   }
 
   .timeline-topline strong {
+    min-width: 0;
     overflow: hidden;
     font-size: 13px;
     text-overflow: ellipsis;
@@ -419,6 +463,10 @@
 
     .timeline-item {
       grid-template-columns: minmax(0, 1fr) auto;
+    }
+
+    .timeline-actions {
+      align-self: start;
     }
 
     .timeline-marker {

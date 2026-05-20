@@ -102,8 +102,7 @@ button:has(.og-icon) {
   user-select: none;
 }
 
-.mobile-files-toggle,
-.mobile-files-close {
+.mobile-files-toggle {
   display: none;
 }
 
@@ -208,10 +207,6 @@ footer {
   border-radius: var(--field-radius, var(--og-field-radius));
   background: var(--action-bar-bg, var(--og-action-bar-bg));
   backdrop-filter: blur(14px);
-}
-
-.mobile-suite-app-switcher {
-  display: none;
 }
 
 .editor-mode-toggle {
@@ -1246,6 +1241,49 @@ footer {
 
 .settings-close {
   flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  min-width: 34px;
+  height: 34px;
+  min-height: 34px;
+  padding: 0;
+  border: 1px solid var(--border, var(--og-border));
+  border-radius: var(--field-radius, var(--og-field-radius));
+  background: var(--action-bar-bg, var(--og-action-bar-bg));
+  color: var(--text, var(--og-text));
+}
+
+.settings-close span,
+.settings-close span::before,
+.settings-close span::after {
+  display: block;
+  width: 15px;
+  height: 2px;
+  border-radius: 999px;
+  background: currentColor;
+}
+
+.settings-close span {
+  position: relative;
+  background: transparent;
+}
+
+.settings-close span::before,
+.settings-close span::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+}
+
+.settings-close span::before {
+  transform: rotate(45deg);
+}
+
+.settings-close span::after {
+  transform: rotate(-45deg);
 }
 
 .settings-nav {
@@ -1505,10 +1543,36 @@ footer {
 }
 
 @media (max-width: 560px) {
+  .settings-backdrop {
+    z-index: 2147483100;
+  }
+
   .settings-drawer {
     inset: 0;
+    z-index: 2147483101;
     width: auto;
+    padding: max(10px, env(safe-area-inset-top)) 10px calc(10px + env(safe-area-inset-bottom));
+    border: 0;
     border-radius: 0;
+  }
+
+  .settings-drawer-header {
+    position: relative;
+    min-height: 52px;
+    padding: 4px 44px 4px 4px;
+    border: 1px solid color-mix(in srgb, var(--border, var(--og-border)) 78%, transparent);
+    border-radius: var(--field-radius, var(--og-field-radius));
+    background: var(--action-bar-bg, var(--og-action-bar-bg));
+  }
+
+  .settings-close {
+    position: absolute;
+    top: 50%;
+    right: 3px;
+    z-index: 2147483102;
+    box-shadow: var(--shadow, var(--og-shadow));
+    backdrop-filter: blur(16px);
+    transform: translateY(-50%);
   }
 
   .color-field {
@@ -1548,7 +1612,7 @@ footer {
   .notes-list {
     position: fixed;
     inset: 0;
-    z-index: 50;
+    z-index: 2147482000;
     padding: 0;
     border: 0;
     background: color-mix(in srgb, var(--bg) 58%, transparent);
@@ -1568,58 +1632,10 @@ footer {
   .notes-list-panel {
     min-height: 100%;
     max-height: 100%;
-    padding: var(--space-sm, 8px) var(--space-sm, 8px) 64px;
+    padding: max(10px, env(safe-area-inset-top)) 10px 64px;
+    border: 0;
     border-radius: 0;
     overflow: auto;
-  }
-
-  .mobile-suite-app-switcher {
-    display: flex;
-    gap: 4px;
-    margin-bottom: 8px;
-    padding: 4px;
-    overflow-x: auto;
-    border: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
-    border-radius: var(--field-radius, var(--og-field-radius));
-    background: color-mix(in srgb, var(--surface-strong) 46%, transparent);
-    scroll-snap-type: x mandatory;
-    scrollbar-width: none;
-  }
-
-  .mobile-suite-app-switcher::-webkit-scrollbar {
-    display: none;
-  }
-
-  .mobile-suite-app-switcher button {
-    flex: 0 0 auto;
-    min-height: 28px;
-    height: 28px;
-    min-width: 72px;
-    padding: 0 10px;
-    background: transparent;
-    color: var(--muted, var(--og-muted));
-    font-size: 0.78rem;
-    font-weight: 900;
-    letter-spacing: 0;
-    scroll-snap-align: start;
-  }
-
-  .mobile-suite-app-switcher .mobile-suite-settings-button {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    min-width: 34px;
-    width: 34px;
-    padding: 0;
-    margin-left: auto;
-  }
-
-  .mobile-suite-app-switcher button.active,
-  .mobile-suite-app-switcher button:hover:not(:disabled),
-  .mobile-suite-app-switcher button:focus-visible {
-    background: color-mix(in srgb, var(--accent-soft) 64%, transparent);
-    color: var(--text, var(--og-text));
-    outline: none;
   }
 
   .toolbar,
@@ -1639,20 +1655,6 @@ footer {
     touch-action: manipulation;
     -webkit-user-select: none;
     user-select: none;
-  }
-
-  .mobile-files-close {
-    position: fixed;
-    left: 50%;
-    bottom: calc(var(--space-md, 12px) + env(safe-area-inset-bottom));
-    z-index: 55;
-    transform: translateX(-50%);
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    min-width: 88px;
-    box-shadow: var(--shadow, var(--og-shadow));
-    backdrop-filter: blur(16px);
   }
 
   .metadata .mobile-files-toggle {
@@ -1713,11 +1715,18 @@ footer {
     min-height: 50px;
   }
 
-  .toolbar {
+  .toolbar.og-action-bar.wrap {
     flex-wrap: nowrap;
     overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
     scroll-snap-type: x mandatory;
     padding-bottom: 4px;
+    scrollbar-width: none;
+  }
+
+  .toolbar::-webkit-scrollbar {
+    display: none;
   }
 
   .toolbar > * {

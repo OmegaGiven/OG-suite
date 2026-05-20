@@ -9,7 +9,8 @@
     "./FileNavigator": "./src/FileNavigator.svelte",
     "./ActionBar": "./src/ActionBar.svelte",
     "./ActionButton": "./src/ActionButton.svelte",
-    "./MobileSuiteMenu": "./src/MobileSuiteMenu.svelte"
+    "./MobileSuiteMenu": "./src/MobileSuiteMenu.svelte",
+    "./MobileSuiteTopBar": "./src/MobileSuiteTopBar.svelte"
   },
   "dependencies": {
     "@og-suite/contracts": "0.1.0"
