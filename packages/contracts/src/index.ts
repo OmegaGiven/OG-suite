@@ -16,6 +16,131 @@ export type AppRegistryEntry = {
   capabilities: AppCapability[]
 }
 
+export type FeedActivityAction =
+  | 'note_created'
+  | 'note_edited'
+  | 'note_metadata_updated'
+  | 'note_deleted'
+  | 'folder_created'
+  | 'folder_deleted'
+  | 'document_edited'
+  | 'favorite_added'
+  | 'favorite_removed'
+  | 'audio_recording_created'
+  | 'audio_recording_renamed'
+  | 'audio_uploaded'
+  | 'audio_transcript_queued'
+  | 'audio_transcript_generated'
+
+export type FeedActivityEvent = {
+  id: string
+  appId: string
+  action: FeedActivityAction
+  summary: string
+  targetKind: 'note' | 'folder' | 'document' | 'tool' | 'settings' | 'recording'
+  targetId: string
+  targetLabel: string
+  actorId: string
+  actorName: string
+  workspaceId: string
+  isPublic: boolean
+  createdAt: IsoDateTime
+}
+
+export type FeedFavorite = {
+  id: string
+  targetKind: 'note' | 'folder' | 'document' | 'tool' | 'recording'
+  targetId: string
+  label: string
+  appId: string
+  actorId: string
+  workspaceId: string
+  createdAt: IsoDateTime
+}
+
+export type CreateFeedFavoriteRequest = {
+  targetKind: FeedFavorite['targetKind']
+  targetId: string
+  label: string
+  appId: string
+}
+
+export type AudioRecordingStatus = 'local' | 'uploading' | 'uploaded' | 'transcribing' | 'transcribed' | 'failed'
+
+export type AudioRecording = {
+  id: string
+  title: string
+  path: string
+  mimeType: string
+  durationMs: number
+  sizeBytes: number
+  status: AudioRecordingStatus
+  assetRef?: string | null
+  ownerId: string
+  workspaceId: string
+  createdAt: IsoDateTime
+  updatedAt: IsoDateTime
+  deletedAt?: IsoDateTime | null
+}
+
+export type AudioFolder = {
+  id: string
+  path: string
+  name: string
+  ownerId: string
+  workspaceId: string
+  createdAt: IsoDateTime
+  updatedAt: IsoDateTime
+  deletedAt?: IsoDateTime | null
+}
+
+export type AudioTranscriptSegment = {
+  id: string
+  recordingId: string
+  channel?: number | null
+  speakerLabel?: string | null
+  startMs: number
+  endMs: number
+  text: string
+}
+
+export type AudioTranscript = {
+  recordingId: string
+  status: 'queued' | 'processing' | 'ready' | 'failed'
+  segments: AudioTranscriptSegment[]
+  updatedAt: IsoDateTime
+}
+
+export type AudioTranscriptionStatus = {
+  recordingId: string
+  status: AudioTranscript['status']
+  engine: 'disabled' | 'command' | 'whisper_cpp' | string
+  updatedAt: IsoDateTime
+}
+
+export type CreateAudioRecordingRequest = {
+  title: string
+  path?: string
+  mimeType: string
+  durationMs: number
+  sizeBytes: number
+}
+
+export type UploadAudioRequest = {
+  dataUrl: string
+  mimeType: string
+  sizeBytes: number
+}
+
+export type UpdateAudioRecordingRequest = {
+  title?: string
+  path?: string
+}
+
+export type CreateAudioFolderRequest = {
+  path: string
+}
+
 export type DesignTokens = {
   colorBackground: string
   colorBackgroundGradient: string
@@ -117,7 +242,7 @@ export type SyncCursorSet = {
 }
 
 export type SyncTombstone = {
-  entity: 'notes' | 'documents' | 'noteFolders'
+  entity: 'notes' | 'documents' | 'noteFolders' | 'audioRecordings'
   id: string
   deletedAt: IsoDateTime
 }

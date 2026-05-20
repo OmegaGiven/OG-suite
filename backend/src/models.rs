@@ -34,6 +34,157 @@ pub struct AppRegistryEntry {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FeedActivityAction {
+    NoteCreated,
+    NoteEdited,
+    NoteMetadataUpdated,
+    NoteDeleted,
+    FolderCreated,
+    FolderDeleted,
+    DocumentEdited,
+    FavoriteAdded,
+    FavoriteRemoved,
+    AudioRecordingCreated,
+    AudioRecordingRenamed,
+    AudioUploaded,
+    AudioTranscriptQueued,
+    AudioTranscriptGenerated,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FeedActivityEvent {
+    pub id: Uuid,
+    pub app_id: String,
+    pub action: FeedActivityAction,
+    pub summary: String,
+    pub target_kind: String,
+    pub target_id: String,
+    pub target_label: String,
+    pub actor_id: String,
+    pub actor_name: String,
+    pub workspace_id: String,
+    pub is_public: bool,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FeedFavorite {
+    pub id: Uuid,
+    pub target_kind: String,
+    pub target_id: String,
+    pub label: String,
+    pub app_id: String,
+    pub actor_id: String,
+    pub workspace_id: String,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateFeedFavoriteRequest {
+    pub target_kind: String,
+    pub target_id: String,
+    pub label: String,
+    pub app_id: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AudioRecording {
+    pub id: Uuid,
+    pub title: String,
+    pub path: String,
+    pub mime_type: String,
+    pub duration_ms: u64,
+    pub size_bytes: u64,
+    pub status: String,
+    pub asset_ref: Option<String>,
+    pub owner_id: String,
+    pub workspace_id: String,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    pub deleted_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AudioFolder {
+    pub id: Uuid,
+    pub path: String,
+    pub name: String,
+    pub owner_id: String,
+    pub workspace_id: String,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    pub deleted_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AudioTranscriptSegment {
+    pub id: Uuid,
+    pub recording_id: Uuid,
+    pub channel: Option<u16>,
+    pub speaker_label: Option<String>,
+    pub start_ms: u64,
+    pub end_ms: u64,
+    pub text: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AudioTranscript {
+    pub recording_id: Uuid,
+    pub status: String,
+    pub segments: Vec<AudioTranscriptSegment>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AudioTranscriptionStatus {
+    pub recording_id: Uuid,
+    pub status: String,
+    pub engine: String,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateAudioRecordingRequest {
+    pub title: String,
+    #[serde(default = "default_path")]
+    pub path: String,
+    pub mime_type: String,
+    pub duration_ms: u64,
+    pub size_bytes: u64,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UploadAudioRequest {
+    pub data_url: String,
+    pub mime_type: String,
+    pub size_bytes: u64,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateAudioRecordingRequest {
+    pub title: Option<String>,
+    pub path: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateAudioFolderRequest {
+    pub path: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Note {
     pub id: Uuid,
@@ -141,7 +292,11 @@ pub struct SyncConflict {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case", rename_all_fields = "camelCase")]
+#[serde(
+    tag = "kind",
+    rename_all = "snake_case",
+    rename_all_fields = "camelCase"
+)]
 pub enum SyncOperation {
     CreateNote {
         note: Note,

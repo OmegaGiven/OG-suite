@@ -4,6 +4,7 @@
     | 'filter'
     | 'new-note'
     | 'new-diagram'
+    | 'folder'
     | 'new-folder'
     | 'upload'
     | 'rename'
@@ -20,6 +21,7 @@
     | 'settings'
     | 'sync'
     | 'save'
+    | 'star'
     | 'bold'
     | 'italic'
     | 'header'
@@ -78,6 +80,8 @@
     <path d="M3.75 7.25A2.25 2.25 0 0 1 6 5h4.15l1.55 1.7H18A2.25 2.25 0 0 1 20.25 9v7.75A2.25 2.25 0 0 1 18 19H6a2.25 2.25 0 0 1-2.25-2.25Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" />
     <path d="M15.75 10.25v5.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
     <path d="M13 13h5.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+  {:else if name === 'folder'}
+    <path d="M3.75 7.25A2.25 2.25 0 0 1 6 5h4.15l1.55 1.7H18A2.25 2.25 0 0 1 20.25 9v7.75A2.25 2.25 0 0 1 18 19H6a2.25 2.25 0 0 1-2.25-2.25Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" />
   {:else if name === 'upload'}
     <path d="M12 4.75v10.5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" />
     <path d="M8.6 8.35 12 4.75l3.4 3.6" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" />
@@ -134,7 +138,10 @@
     <circle cx="17.25" cy="5.9" r="2.25" fill="none" stroke="currentColor" stroke-width="1.9" />
     <circle cx="17.25" cy="18.1" r="2.25" fill="none" stroke="currentColor" stroke-width="1.9" />
   {:else if name === 'list'}
-    <path d="M5 7h14M5 12h10M5 17h12" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" />
+    <circle cx="5.75" cy="7" r="1.05" fill="currentColor" />
+    <circle cx="5.75" cy="12" r="1.05" fill="currentColor" />
+    <circle cx="5.75" cy="17" r="1.05" fill="currentColor" />
+    <path d="M9 7h10M9 12h8M9 17h9.5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" />
   {:else if name === 'settings'}
     <circle cx="12" cy="12" r="2.8" fill="none" stroke="currentColor" stroke-width="1.75" />
     <circle cx="12" cy="12" r="6.15" fill="none" stroke="currentColor" stroke-width="1.45" opacity="0.95" />
@@ -143,6 +150,8 @@
     <path d="M5 4.75h11.1L19 7.65v11.6H5z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" />
     <path d="M8 4.75v5h7v-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" />
     <path d="M8.25 19.25v-5.5h7.5v5.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" />
+  {:else if name === 'star'}
+    <path d="m12 4.25 2.18 4.65 5.07.78-3.67 3.63.86 5.12L12 16l-4.44 2.43.86-5.12-3.67-3.63 5.07-.78Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" />
   {:else if name === 'bold'}
     <path d="M8 5h5.2a3 3 0 0 1 0 6H8zM8 11h6a3.5 3.5 0 0 1 0 7H8z" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round" />
   {:else if name === 'italic'}

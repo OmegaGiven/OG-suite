@@ -14,13 +14,60 @@ pub trait SuiteRepository: Send + Sync {
     async fn notes(&self) -> AppResult<Vec<Note>>;
     async fn create_note(&self, request: CreateNoteRequest) -> AppResult<Note>;
     async fn upsert_note(&self, note: Note) -> AppResult<Note>;
-    async fn update_note_metadata(&self, id: Uuid, request: UpdateNoteMetadataRequest) -> AppResult<Note>;
+    async fn update_note_metadata(
+        &self,
+        id: Uuid,
+        request: UpdateNoteMetadataRequest,
+    ) -> AppResult<Note>;
     async fn delete_note(&self, id: Uuid) -> AppResult<()>;
     async fn document(&self, id: Uuid) -> AppResult<CrdtDocumentState>;
-    async fn append_document_updates(&self, id: Uuid, updates: Vec<IncomingCrdtUpdate>) -> AppResult<CrdtDocumentState>;
+    async fn append_document_updates(
+        &self,
+        id: Uuid,
+        updates: Vec<IncomingCrdtUpdate>,
+    ) -> AppResult<CrdtDocumentState>;
     async fn append_document_update(&self, update: CrdtUpdate) -> AppResult<CrdtDocumentState>;
     async fn envelope(&self) -> AppResult<SyncEnvelope>;
     async fn apply_sync_operation(&self, operation: SyncOperation) -> AppResult<()>;
+    async fn feed_events(&self) -> AppResult<Vec<FeedActivityEvent>>;
+    async fn append_feed_event(&self, event: FeedActivityEvent) -> AppResult<FeedActivityEvent>;
+    async fn feed_favorites(&self) -> AppResult<Vec<FeedFavorite>>;
+    async fn create_feed_favorite(
+        &self,
+        request: CreateFeedFavoriteRequest,
+    ) -> AppResult<FeedFavorite>;
+    async fn delete_feed_favorite(&self, id: Uuid) -> AppResult<()>;
+    async fn audio_recordings(&self) -> AppResult<Vec<AudioRecording>>;
+    async fn audio_folders(&self) -> AppResult<Vec<AudioFolder>>;
+    async fn create_audio_folder(&self, request: CreateAudioFolderRequest) -> AppResult<AudioFolder>;
+    async fn delete_audio_folder(&self, id: Uuid) -> AppResult<()>;
+    async fn create_audio_recording(
+        &self,
+        request: CreateAudioRecordingRequest,
+    ) -> AppResult<AudioRecording>;
+    async fn audio_recording(&self, id: Uuid) -> AppResult<AudioRecording>;
+    async fn update_audio_recording(
+        &self,
+        id: Uuid,
+        request: UpdateAudioRecordingRequest,
+    ) -> AppResult<AudioRecording>;
+    async fn upload_audio(
+        &self,
+        id: Uuid,
+        request: UploadAudioRequest,
+    ) -> AppResult<AudioRecording>;
+    async fn audio_asset(&self, id: Uuid) -> AppResult<String>;
+    async fn delete_audio_recording(&self, id: Uuid) -> AppResult<()>;
+    async fn audio_transcript(&self, id: Uuid) -> AppResult<AudioTranscript>;
+    async fn upsert_audio_transcript(
+        &self,
+        transcript: AudioTranscript,
+    ) -> AppResult<AudioTranscript>;
+    async fn update_audio_recording_status(
+        &self,
+        id: Uuid,
+        status: &str,
+    ) -> AppResult<AudioRecording>;
 }
 
 #[derive(Clone, Default)]
@@ -34,6 +81,12 @@ struct RepositoryData {
     note_folders: HashMap<Uuid, NoteFolder>,
     documents: HashMap<Uuid, CrdtDocumentState>,
     tombstones: HashMap<(String, Uuid), SyncTombstone>,
+    feed_events: Vec<FeedActivityEvent>,
+    feed_favorites: HashMap<Uuid, FeedFavorite>,
+    audio_recordings: HashMap<Uuid, AudioRecording>,
+    audio_folders: HashMap<Uuid, AudioFolder>,
+    audio_assets: HashMap<Uuid, String>,
+    audio_transcripts: HashMap<Uuid, AudioTranscript>,
 }
 
 impl InMemoryRepository {
@@ -45,7 +98,11 @@ impl InMemoryRepository {
 #[async_trait]
 impl SuiteRepository for InMemoryRepository {
     async fn apps(&self) -> AppResult<Vec<AppRegistryEntry>> {
-        Ok(vec![notes_registry_entry()])
+        Ok(vec![
+            feed_registry_entry(),
+            notes_registry_entry(),
+            audio_registry_entry(),
+        ])
     }
 
     async fn note_folders(&self) -> AppResult<Vec<NoteFolder>> {
@@ -60,7 +117,12 @@ impl SuiteRepository for InMemoryRepository {
 
     async fn notes(&self) -> AppResult<Vec<Note>> {
         let data = self.inner.read().await;
-        Ok(data.notes.values().cloned().filter(|note| note.deleted_at.is_none()).collect())
+        Ok(data
+            .notes
+            .values()
+            .cloned()
+            .filter(|note| note.deleted_at.is_none())
+            .collect())
     }
 
     async fn create_note(&self, request: CreateNoteRequest) -> AppResult<Note> {
@@ -99,9 +161,16 @@ impl SuiteRepository for InMemoryRepository {
         Ok(note)
     }
 
-    async fn update_note_metadata(&self, id: Uuid, request: UpdateNoteMetadataRequest) -> AppResult<Note> {
+    async fn update_note_metadata(
+        &self,
+        id: Uuid,
+        request: UpdateNoteMetadataRequest,
+    ) -> AppResult<Note> {
         let mut data = self.inner.write().await;
-        let note = data.notes.get_mut(&id).ok_or(crate::error::AppError::NotFound)?;
+        let note = data
+            .notes
+            .get_mut(&id)
+            .ok_or(crate::error::AppError::NotFound)?;
         if let Some(title) = request.title {
             note.title = title;
         }
@@ -134,17 +203,22 @@ impl SuiteRepository for InMemoryRepository {
 
     async fn document(&self, id: Uuid) -> AppResult<CrdtDocumentState> {
         let data = self.inner.read().await;
-        data.documents.get(&id).cloned().ok_or(crate::error::AppError::NotFound)
+        data.documents
+            .get(&id)
+            .cloned()
+            .ok_or(crate::error::AppError::NotFound)
     }
 
-    async fn append_document_updates(&self, id: Uuid, updates: Vec<IncomingCrdtUpdate>) -> AppResult<CrdtDocumentState> {
+    async fn append_document_updates(
+        &self,
+        id: Uuid,
+        updates: Vec<IncomingCrdtUpdate>,
+    ) -> AppResult<CrdtDocumentState> {
         let mut document = self.document(id).await?;
         for incoming in updates {
-            if document
-                .updates
-                .iter()
-                .any(|update| update.client_id == incoming.client_id && update.sequence == incoming.sequence)
-            {
+            if document.updates.iter().any(|update| {
+                update.client_id == incoming.client_id && update.sequence == incoming.sequence
+            }) {
                 continue;
             }
             document.updates.push(CrdtUpdate {
@@ -165,18 +239,22 @@ impl SuiteRepository for InMemoryRepository {
 
     async fn append_document_update(&self, update: CrdtUpdate) -> AppResult<CrdtDocumentState> {
         let mut data = self.inner.write().await;
-        let document = data
-            .documents
-            .entry(update.document_id)
-            .or_insert_with(|| CrdtDocumentState {
-                id: update.document_id,
-                kind: "note".to_string(),
-                snapshot: String::new(),
-                updates: Vec::new(),
-                version: 0,
-                compacted_at: None,
-            });
-        if document.updates.iter().any(|existing| existing.id == update.id) {
+        let document =
+            data.documents
+                .entry(update.document_id)
+                .or_insert_with(|| CrdtDocumentState {
+                    id: update.document_id,
+                    kind: "note".to_string(),
+                    snapshot: String::new(),
+                    updates: Vec::new(),
+                    version: 0,
+                    compacted_at: None,
+                });
+        if document
+            .updates
+            .iter()
+            .any(|existing| existing.id == update.id)
+        {
             return Ok(document.clone());
         }
         document.updates.push(update);
@@ -200,16 +278,30 @@ impl SuiteRepository for InMemoryRepository {
             .cloned()
             .collect::<Vec<_>>();
         Ok(SyncEnvelope {
-            cursors: SyncCursorSet { generated_at: Utc::now() },
-            apps: vec![notes_registry_entry()],
+            cursors: SyncCursorSet {
+                generated_at: Utc::now(),
+            },
+            apps: vec![
+                feed_registry_entry(),
+                notes_registry_entry(),
+                audio_registry_entry(),
+            ],
             note_folders: data
                 .note_folders
                 .values()
                 .cloned()
                 .filter(|folder| folder.deleted_at.is_none())
                 .collect(),
-            notes: data.notes.values().cloned().filter(|note| note.deleted_at.is_none()).collect(),
-            document_updates: documents.iter().flat_map(|document| document.updates.iter().cloned()).collect(),
+            notes: data
+                .notes
+                .values()
+                .cloned()
+                .filter(|note| note.deleted_at.is_none())
+                .collect(),
+            document_updates: documents
+                .iter()
+                .flat_map(|document| document.updates.iter().cloned())
+                .collect(),
             documents,
             tombstones: data.tombstones.values().cloned().collect(),
             conflicts: Vec::new(),
@@ -221,7 +313,8 @@ impl SuiteRepository for InMemoryRepository {
             SyncOperation::CreateNote { note, document } => {
                 let mut data = self.inner.write().await;
                 data.tombstones.remove(&("notes".to_string(), note.id));
-                data.tombstones.remove(&("documents".to_string(), document.id));
+                data.tombstones
+                    .remove(&("documents".to_string(), document.id));
                 data.documents.insert(document.id, document);
                 data.notes.insert(note.id, note);
                 Ok(())
@@ -244,7 +337,8 @@ impl SuiteRepository for InMemoryRepository {
             }
             SyncOperation::CreateNoteFolder { folder } => {
                 let mut data = self.inner.write().await;
-                data.tombstones.remove(&("noteFolders".to_string(), folder.id));
+                data.tombstones
+                    .remove(&("noteFolders".to_string(), folder.id));
                 data.note_folders.insert(folder.id, folder);
                 Ok(())
             }
@@ -263,8 +357,306 @@ impl SuiteRepository for InMemoryRepository {
                 );
                 Ok(())
             }
-            SyncOperation::AppendDocumentUpdate { update } => self.append_document_update(update).await.map(|_| ()),
+            SyncOperation::AppendDocumentUpdate { update } => {
+                self.append_document_update(update).await.map(|_| ())
+            }
         }
+    }
+
+    async fn feed_events(&self) -> AppResult<Vec<FeedActivityEvent>> {
+        let data = self.inner.read().await;
+        let mut events = data
+            .feed_events
+            .iter()
+            .filter(|event| event.is_public)
+            .cloned()
+            .collect::<Vec<_>>();
+        events.sort_by(|left, right| right.created_at.cmp(&left.created_at));
+        Ok(events)
+    }
+
+    async fn append_feed_event(&self, event: FeedActivityEvent) -> AppResult<FeedActivityEvent> {
+        let mut data = self.inner.write().await;
+        data.feed_events.push(event.clone());
+        Ok(event)
+    }
+
+    async fn feed_favorites(&self) -> AppResult<Vec<FeedFavorite>> {
+        let data = self.inner.read().await;
+        let mut favorites = data.feed_favorites.values().cloned().collect::<Vec<_>>();
+        favorites.sort_by(|left, right| right.created_at.cmp(&left.created_at));
+        Ok(favorites)
+    }
+
+    async fn create_feed_favorite(
+        &self,
+        request: CreateFeedFavoriteRequest,
+    ) -> AppResult<FeedFavorite> {
+        let mut data = self.inner.write().await;
+        if let Some(existing) = data
+            .feed_favorites
+            .values()
+            .find(|favorite| {
+                favorite.target_kind == request.target_kind
+                    && favorite.target_id == request.target_id
+            })
+            .cloned()
+        {
+            return Ok(existing);
+        }
+        let favorite = FeedFavorite {
+            id: Uuid::new_v4(),
+            target_kind: request.target_kind,
+            target_id: request.target_id,
+            label: request.label,
+            app_id: request.app_id,
+            actor_id: "local-user".to_string(),
+            workspace_id: "default".to_string(),
+            created_at: Utc::now(),
+        };
+        data.feed_favorites.insert(favorite.id, favorite.clone());
+        Ok(favorite)
+    }
+
+    async fn delete_feed_favorite(&self, id: Uuid) -> AppResult<()> {
+        let mut data = self.inner.write().await;
+        data.feed_favorites.remove(&id);
+        Ok(())
+    }
+
+    async fn audio_recordings(&self) -> AppResult<Vec<AudioRecording>> {
+        let data = self.inner.read().await;
+        let mut recordings = data
+            .audio_recordings
+            .values()
+            .filter(|recording| recording.deleted_at.is_none())
+            .cloned()
+            .collect::<Vec<_>>();
+        recordings.sort_by(|left, right| right.created_at.cmp(&left.created_at));
+        Ok(recordings)
+    }
+
+    async fn audio_folders(&self) -> AppResult<Vec<AudioFolder>> {
+        let data = self.inner.read().await;
+        let mut folders = data
+            .audio_folders
+            .values()
+            .filter(|folder| folder.deleted_at.is_none())
+            .cloned()
+            .collect::<Vec<_>>();
+        folders.sort_by(|left, right| left.path.cmp(&right.path));
+        Ok(folders)
+    }
+
+    async fn create_audio_folder(
+        &self,
+        request: CreateAudioFolderRequest,
+    ) -> AppResult<AudioFolder> {
+        let path = normalize_folder_path(&request.path);
+        let mut data = self.inner.write().await;
+        if let Some(existing) = data
+            .audio_folders
+            .values()
+            .find(|folder| normalize_folder_path(&folder.path) == path && folder.deleted_at.is_none())
+            .cloned()
+        {
+            return Ok(existing);
+        }
+        let now = Utc::now();
+        let folder = AudioFolder {
+            id: Uuid::new_v4(),
+            name: folder_name(&path),
+            path,
+            owner_id: "local-user".to_string(),
+            workspace_id: "default".to_string(),
+            created_at: now,
+            updated_at: now,
+            deleted_at: None,
+        };
+        data.audio_folders.insert(folder.id, folder.clone());
+        Ok(folder)
+    }
+
+    async fn delete_audio_folder(&self, id: Uuid) -> AppResult<()> {
+        let mut data = self.inner.write().await;
+        let deleted_at = Utc::now();
+        if let Some(folder) = data.audio_folders.get_mut(&id) {
+            folder.deleted_at = Some(deleted_at);
+            folder.updated_at = deleted_at;
+        }
+        Ok(())
+    }
+
+    async fn create_audio_recording(
+        &self,
+        request: CreateAudioRecordingRequest,
+    ) -> AppResult<AudioRecording> {
+        let now = Utc::now();
+        let recording = AudioRecording {
+            id: Uuid::new_v4(),
+            title: request.title,
+            path: normalize_folder_path(&request.path),
+            mime_type: request.mime_type,
+            duration_ms: request.duration_ms,
+            size_bytes: request.size_bytes,
+            status: "local".to_string(),
+            asset_ref: None,
+            owner_id: "local-user".to_string(),
+            workspace_id: "default".to_string(),
+            created_at: now,
+            updated_at: now,
+            deleted_at: None,
+        };
+        let mut data = self.inner.write().await;
+        data.audio_recordings
+            .insert(recording.id, recording.clone());
+        Ok(recording)
+    }
+
+    async fn audio_recording(&self, id: Uuid) -> AppResult<AudioRecording> {
+        let data = self.inner.read().await;
+        data.audio_recordings
+            .get(&id)
+            .cloned()
+            .filter(|recording| recording.deleted_at.is_none())
+            .ok_or(crate::error::AppError::NotFound)
+    }
+
+    async fn update_audio_recording(
+        &self,
+        id: Uuid,
+        request: UpdateAudioRecordingRequest,
+    ) -> AppResult<AudioRecording> {
+        let mut data = self.inner.write().await;
+        let recording = data
+            .audio_recordings
+            .get_mut(&id)
+            .filter(|recording| recording.deleted_at.is_none())
+            .ok_or(crate::error::AppError::NotFound)?;
+        if let Some(title) = request.title {
+            recording.title = title;
+        }
+        if let Some(path) = request.path {
+            recording.path = normalize_folder_path(&path);
+        }
+        recording.updated_at = Utc::now();
+        Ok(recording.clone())
+    }
+
+    async fn upload_audio(
+        &self,
+        id: Uuid,
+        request: UploadAudioRequest,
+    ) -> AppResult<AudioRecording> {
+        let mut data = self.inner.write().await;
+        data.audio_assets.insert(id, request.data_url);
+        let now = Utc::now();
+        let recording = data
+            .audio_recordings
+            .get_mut(&id)
+            .ok_or(crate::error::AppError::NotFound)?;
+        recording.mime_type = request.mime_type;
+        recording.size_bytes = request.size_bytes;
+        recording.status = "transcribing".to_string();
+        recording.asset_ref = Some(format!("memory://audio/{id}"));
+        recording.updated_at = now;
+        let recording = recording.clone();
+        data.audio_transcripts.insert(
+            id,
+            AudioTranscript {
+                recording_id: id,
+                status: "queued".to_string(),
+                segments: vec![AudioTranscriptSegment {
+                    id: Uuid::new_v4(),
+                    recording_id: id,
+                    channel: Some(1),
+                    speaker_label: Some("Speaker 1".to_string()),
+                    start_ms: 0,
+                    end_ms: recording.duration_ms,
+                    text: "Transcript queued. Backend transcription provider is not connected yet."
+                        .to_string(),
+                }],
+                updated_at: now,
+            },
+        );
+        Ok(recording)
+    }
+
+    async fn audio_asset(&self, id: Uuid) -> AppResult<String> {
+        let data = self.inner.read().await;
+        data.audio_assets
+            .get(&id)
+            .cloned()
+            .ok_or(crate::error::AppError::NotFound)
+    }
+
+    async fn delete_audio_recording(&self, id: Uuid) -> AppResult<()> {
+        let mut data = self.inner.write().await;
+        let deleted_at = Utc::now();
+        if let Some(recording) = data.audio_recordings.get_mut(&id) {
+            recording.deleted_at = Some(deleted_at);
+            recording.updated_at = deleted_at;
+        }
+        data.audio_assets.remove(&id);
+        data.audio_transcripts.remove(&id);
+        data.tombstones.insert(
+            ("audioRecordings".to_string(), id),
+            SyncTombstone {
+                entity: "audioRecordings".to_string(),
+                id,
+                deleted_at,
+            },
+        );
+        Ok(())
+    }
+
+    async fn audio_transcript(&self, id: Uuid) -> AppResult<AudioTranscript> {
+        let data = self.inner.read().await;
+        if let Some(transcript) = data.audio_transcripts.get(&id) {
+            return Ok(transcript.clone());
+        }
+        if data.audio_recordings.contains_key(&id) {
+            return Ok(AudioTranscript {
+                recording_id: id,
+                status: "queued".to_string(),
+                segments: Vec::new(),
+                updated_at: Utc::now(),
+            });
+        }
+        Err(crate::error::AppError::NotFound)
+    }
+
+    async fn upsert_audio_transcript(
+        &self,
+        transcript: AudioTranscript,
+    ) -> AppResult<AudioTranscript> {
+        let mut data = self.inner.write().await;
+        data.audio_transcripts
+            .insert(transcript.recording_id, transcript.clone());
+        if let Some(recording) = data.audio_recordings.get_mut(&transcript.recording_id) {
+            recording.status = match transcript.status.as_str() {
+                "ready" => "transcribed".to_string(),
+                "failed" => "failed".to_string(),
+                status => status.to_string(),
+            };
+            recording.updated_at = Utc::now();
+        }
+        Ok(transcript)
+    }
+
+    async fn update_audio_recording_status(
+        &self,
+        id: Uuid,
+        status: &str,
+    ) -> AppResult<AudioRecording> {
+        let mut data = self.inner.write().await;
+        let recording = data
+            .audio_recordings
+            .get_mut(&id)
+            .ok_or(crate::error::AppError::NotFound)?;
+        recording.status = status.to_string();
+        recording.updated_at = Utc::now();
+        Ok(recording.clone())
     }
 }
 
@@ -289,7 +681,58 @@ fn notes_registry_entry() -> AppRegistryEntry {
         name: "Notes".to_string(),
         route: "/notes".to_string(),
         standalone_route: "/".to_string(),
-        capabilities: vec![AppCapability::Offline, AppCapability::RemoteSave, AppCapability::Collaboration],
+        capabilities: vec![
+            AppCapability::Offline,
+            AppCapability::RemoteSave,
+            AppCapability::Collaboration,
+        ],
+    }
+}
+
+fn feed_registry_entry() -> AppRegistryEntry {
+    AppRegistryEntry {
+        id: "feed".to_string(),
+        name: "Feed".to_string(),
+        route: "/feed".to_string(),
+        standalone_route: "/feed".to_string(),
+        capabilities: vec![AppCapability::RemoteSave],
+    }
+}
+
+fn audio_registry_entry() -> AppRegistryEntry {
+    AppRegistryEntry {
+        id: "audio".to_string(),
+        name: "Audio".to_string(),
+        route: "/audio".to_string(),
+        standalone_route: "/".to_string(),
+        capabilities: vec![
+            AppCapability::Offline,
+            AppCapability::RemoteSave,
+            AppCapability::Media,
+        ],
+    }
+}
+
+fn normalize_folder_path(path: &str) -> String {
+    let trimmed = path.trim().trim_matches('/');
+    if trimmed.is_empty() {
+        "/".to_string()
+    } else {
+        format!("/{trimmed}")
+    }
+}
+
+fn folder_name(path: &str) -> String {
+    let normalized = normalize_folder_path(path);
+    if normalized == "/" {
+        "Root".to_string()
+    } else {
+        normalized
+            .split('/')
+            .filter(|part| !part.is_empty())
+            .next_back()
+            .unwrap_or("Folder")
+            .to_string()
     }
 }
 

@@ -1,4 +1,4 @@
-use crate::{error::AppResult, error::AppError};
+use crate::{error::AppError, error::AppResult};
 
 const INITIAL_SCHEMA: &str = include_str!("../migrations/001_initial.sql");
 
@@ -17,7 +17,10 @@ pub async fn run_migrations(database_url: &str) -> AppResult<()> {
             tracing::error!("postgres connection error: {error}");
         }
     });
-    client.batch_execute(INITIAL_SCHEMA).await.map_err(AppError::from)
+    client
+        .batch_execute(INITIAL_SCHEMA)
+        .await
+        .map_err(AppError::from)
 }
 
 #[cfg(test)]

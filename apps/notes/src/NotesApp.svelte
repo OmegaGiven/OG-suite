@@ -12,6 +12,8 @@
   import Link from '@tiptap/extension-link'
   import Image from '@tiptap/extension-image'
   import TextAlign from '@tiptap/extension-text-align'
+  import TaskList from '@tiptap/extension-task-list'
+  import TaskItem from '@tiptap/extension-task-item'
   import { Table } from '@tiptap/extension-table'
   import TableRow from '@tiptap/extension-table-row'
   import TableHeader from '@tiptap/extension-table-header'
@@ -24,12 +26,20 @@
   import { marked } from 'marked'
   import TurndownService from 'turndown'
   import * as Y from 'yjs'
+  import ActionBar from '@og-suite/ui/ActionBar'
   import Icon from '@og-suite/ui/Icon'
   import { applyTokens, saveStoredTokens } from '@og-suite/ui'
   import AppearanceSettings from './AppearanceSettings.svelte'
 
   type EditorRenderMode = 'text' | 'markdown' | 'rich'
+  type ListStyle = 'dash' | 'star' | 'checkbox' | 'numbered' | 'emoji'
   type SaveIndicatorState = 'saved' | 'pending' | 'syncing' | 'offline'
+  type TocHeading = {
+    id: string
+    level: number
+    title: string
+    position: number
+  }
   type SuiteNavItem = {
     id: string
     name: string
@@ -73,6 +83,9 @@
   let highlightColor = '#fff2a8'
   let tableMenuOpen = false
   let richTableMenuStyle = ''
+  let tocOpen = false
+  let listMenuOpen = false
+  let listMenuStyle = ''
   let searchOpen = false
   let searchQuery = ''
   let activeFolderPath = '/'
@@ -101,6 +114,16 @@
     async: false,
     gfm: true,
     breaks: false,
+  })
+
+  turndown.addRule('taskListItems', {
+    filter: (node) => node.nodeName === 'LI' && (node as HTMLElement).getAttribute('data-type') === 'taskItem',
+    replacement: (content, node) => {
+      const input = (node as HTMLElement).querySelector('input[type="checkbox"]') as HTMLInputElement | null
+      const checked = input?.checked ? 'x' : ' '
+      const text = content.replace(/^\s+|\s+$/g, '').replace(/^\[[ xX]\]\s*/, '')
+      return `- [${checked}] ${text || 'Task'}\n`
+    },
   })
 
   $: notes = envelope?.notes.filter((note) => !note.deletedAt) ?? []
@@ -155,6 +178,7 @@
       : saveIndicatorState === 'pending'
         ? 'Saving'
         : 'Offline'
+  $: tocHeadings = editorRenderMode === 'rich' ? getRichHeadings(richActiveStateVersion) : getMarkdownHeadings(editorText)
 
   function getSaveIndicatorState(currentStatus: string): SaveIndicatorState {
     if (currentStatus.toLowerCase().includes('offline')) return 'offline'
@@ -355,6 +379,70 @@
       draftPath = remapPath(draftPath, sourcePath, movedPath)
     }
     status = `Moved folder to ${destinationPath}`
+  }
+
+  async function renameSelectedFolder() {
+    const sourcePath = normalizeFolderPath(selectedFolderPath)
+    if (!sourcePath || sourcePath === '/') return
+    const nextName = window.prompt('Folder name', folderName(sourcePath))?.trim()
+    if (!nextName) return
+    const destinationPath = parentFolderPath(sourcePath)
+    const renamedPath = normalizeFolderPath(`${destinationPath}/${nextName}`)
+    if (renamedPath === sourcePath) return
+    const existingFolder = noteFolders.find((folder) => normalizeFolderPath(folder.path) === renamedPath)
+    const existingNoteInTarget = notes.find((note) => normalizeFolderPath(note.path) === renamedPath)
+    if (existingFolder || existingNoteInTarget) {
+      status = `Folder already exists: ${renamedPath}`
+      return
+    }
+
+    const now = new Date().toISOString()
+    const affectedFolders = noteFolders.filter((folder) => isSameOrNestedPath(folder.path, sourcePath))
+    const affectedNotes = notes.filter((note) => isSameOrNestedPath(note.path, sourcePath))
+
+    for (const folder of affectedFolders) {
+      const nextPath = remapPath(normalizeFolderPath(folder.path), sourcePath, renamedPath)
+      await queueOperation(services, {
+        kind: 'create_note_folder',
+        folder: {
+          ...folder,
+          path: nextPath,
+          name: folderName(nextPath),
+          updatedAt: now,
+        },
+      })
+    }
+
+    for (const note of affectedNotes) {
+      await queueOperation(services, {
+        kind: 'update_note_metadata',
+        note: {
+          ...note,
+          path: remapPath(normalizeFolderPath(note.path), sourcePath, renamedPath),
+          updatedAt: now,
+        },
+      })
+    }
+
+    envelope = await services.cache.loadEnvelope()
+    activeFolderPath = renamedPath
+    selectedFolderPath = renamedPath
+    if (selectedNote && isSameOrNestedPath(draftPath, sourcePath)) {
+      draftPath = remapPath(draftPath, sourcePath, renamedPath)
+    }
+    status = `Renamed folder to ${renamedPath}`
+  }
+
+  async function renameSelectedFileTarget() {
+    if (selectedFolderPath) {
+      await renameSelectedFolder()
+      return
+    }
+    if (!selectedNote) return
+    const title = window.prompt('Note name', selectedNote.title)?.trim()
+    if (!title) return
+    draftTitle = title
+    await saveMetadata()
   }
 
   function startNoteDrag(event: DragEvent, note: Note) {
@@ -806,6 +894,7 @@
   }
 
   function runCommand(command: string) {
+    listMenuOpen = false
     if (editorRenderMode === 'rich' && runRichCommand(command)) return
     if (command.startsWith('table-')) tableMenuOpen = false
     if (command === 'undo') undoRedo('undo')
@@ -827,6 +916,11 @@
     if (command === 'divider') insertBlock('\n---\n')
     if (command === 'indent') transformSelectedLines((line) => `  ${line}`)
     if (command === 'outdent') transformSelectedLines((line) => line.replace(/^( {1,2}|\t)/, ''))
+    if (command === 'list-dash') applyListStyle('dash')
+    if (command === 'list-star') applyListStyle('star')
+    if (command === 'list-checkbox') applyListStyle('checkbox')
+    if (command === 'list-numbered') applyListStyle('numbered')
+    if (command === 'list-emoji') applyListStyle('emoji')
     if (command === 'align-left') wrapSelection('<div style="text-align: left;">\n', '\n</div>', 'Aligned text')
     if (command === 'align-center') wrapSelection('<div style="text-align: center;">\n', '\n</div>', 'Aligned text')
     if (command === 'align-right') wrapSelection('<div style="text-align: right;">\n', '\n</div>', 'Aligned text')
@@ -837,6 +931,18 @@
     if (command === 'table-remove-column') updateMarkdownTable('remove-column')
     if (command === 'image') insertImage()
     if (command === 'link') insertLink()
+  }
+
+  function toggleListMenu(event: MouseEvent) {
+    if (listMenuOpen) {
+      listMenuOpen = false
+      return
+    }
+    const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
+    const left = Math.max(8, Math.min(rect.left, window.innerWidth - 206))
+    const top = Math.min(rect.bottom + 6, window.innerHeight - 220)
+    listMenuStyle = `top: ${top}px; left: ${left}px;`
+    listMenuOpen = true
   }
 
   function selection() {
@@ -872,7 +978,7 @@
     replaceRange(start, end, `${prefix}${block}${suffix}`)
   }
 
-  function transformSelectedLines(transform: (line: string) => string) {
+  function transformSelectedLines(transform: (line: string, index: number) => string) {
     const { start, end } = selection()
     const lineStart = editorText.lastIndexOf('\n', Math.max(0, start - 1)) + 1
     const nextBreak = editorText.indexOf('\n', end)
@@ -881,10 +987,76 @@
     replaceRange(lineStart, lineEnd, block.split('\n').map(transform).join('\n'))
   }
 
+  function applyListStyle(style: ListStyle) {
+    const emoji = style === 'emoji' ? window.prompt('Emoji bullet', '✅')?.trim() || '✅' : ''
+    const markerForStyle = (index: number) => {
+      if (style === 'star') return '- ★ '
+      if (style === 'checkbox') return '- [ ] '
+      if (style === 'numbered') return `${index + 1}. `
+      if (style === 'emoji') return `- ${emoji} `
+      return '- '
+    }
+    transformSelectedLines((line, index) => {
+      const content = line.replace(/^(\s*)(?:[-*]\s+\[[ xX]\]\s+|[-*]\s+(?:[★•]\s+|[\p{Extended_Pictographic}]\s+)?|[★•]\s+|\d+\.\s+)/u, '$1')
+      const indent = content.match(/^\s*/)?.[0] ?? ''
+      const text = content.slice(indent.length) || 'List item'
+      return `${indent}${markerForStyle(index)}${text}`
+    })
+  }
+
   function setHeading(level: number) {
     transformSelectedLines((line) => {
       const cleaned = line.replace(/^#{1,6}\s*/, '')
       return level === 0 ? cleaned : `${'#'.repeat(level)} ${cleaned || 'Heading'}`
+    })
+  }
+
+  function getMarkdownHeadings(text: string): TocHeading[] {
+    const headings: TocHeading[] = []
+    let position = 0
+    for (const [index, line] of text.split('\n').entries()) {
+      const match = /^(#{1,6})\s+(.+?)\s*$/.exec(line)
+      if (match) {
+        headings.push({
+          id: `markdown-heading-${index}`,
+          level: match[1].length,
+          title: match[2],
+          position,
+        })
+      }
+      position += line.length + 1
+    }
+    return headings
+  }
+
+  function getRichHeadings(_version: number): TocHeading[] {
+    if (!richEditor) return []
+    const headings: TocHeading[] = []
+    richEditor.state.doc.descendants((node, position) => {
+      if (node.type.name !== 'heading') return
+      const title = node.textContent.trim()
+      if (!title) return
+      headings.push({
+        id: `rich-heading-${position}`,
+        level: Number(node.attrs.level ?? 1),
+        title,
+        position,
+      })
+    })
+    return headings
+  }
+
+  function jumpToHeading(heading: TocHeading) {
+    tocOpen = false
+    if (editorRenderMode === 'rich' && richEditor) {
+      richEditor.chain().focus().setTextSelection(Math.min(heading.position + 1, richEditor.state.doc.content.size)).scrollIntoView().run()
+      return
+    }
+    queueMicrotask(() => {
+      editorElement?.focus()
+      editorElement?.setSelectionRange(heading.position, heading.position)
+      const lineIndex = editorText.slice(0, heading.position).split('\n').length - 1
+      editorElement?.scrollTo({ top: Math.max(0, lineIndex * 24 - 24), behavior: 'smooth' })
     })
   }
 
@@ -1017,6 +1189,12 @@
   function folderName(path: string) {
     const normalized = normalizeFolderPath(path)
     return normalized === '/' ? 'Root' : normalized.split('/').filter(Boolean).at(-1) ?? normalized
+  }
+
+  function parentFolderPath(path: string) {
+    const parts = normalizeFolderPath(path).split('/').filter(Boolean)
+    parts.pop()
+    return parts.length === 0 ? '/' : `/${parts.join('/')}`
   }
 
   function remapPath(path: string, sourcePath: string, movedPath: string) {
@@ -1200,6 +1378,8 @@
         Color,
         Highlight.configure({ multicolor: true }),
         TextAlign.configure({ types: ['heading', 'paragraph'] }),
+        TaskList,
+        TaskItem.configure({ nested: true }),
         IndentExtension,
         Table.configure({ resizable: true }),
         TableRow,
@@ -1326,6 +1506,14 @@
     if (command === 'quote') return richEditor.chain().focus().toggleBlockquote().run()
     if (command === 'code-block') return richEditor.chain().focus().toggleCodeBlock().run()
     if (command === 'divider') return richEditor.chain().focus().setHorizontalRule().run()
+    if (command === 'list-dash') return richEditor.chain().focus().toggleBulletList().run()
+    if (command === 'list-star') return richEditor.chain().focus().toggleBulletList().insertContent('★ ').run()
+    if (command === 'list-numbered') return richEditor.chain().focus().toggleOrderedList().run()
+    if (command === 'list-checkbox') return richEditor.chain().focus().toggleTaskList().run()
+    if (command === 'list-emoji') {
+      const emoji = window.prompt('Emoji bullet', '✅')?.trim() || '✅'
+      return richEditor.chain().focus().toggleBulletList().insertContent(`${emoji} `).run()
+    }
     if (command === 'link') {
       const href = window.prompt('Link URL')
       if (href) return richEditor.chain().focus().setLink({ href }).run()
@@ -1455,6 +1643,9 @@
     if (command === 'align-center') return richEditor.isActive({ textAlign: 'center' })
     if (command === 'align-right') return richEditor.isActive({ textAlign: 'right' })
     if (command === 'indent') return Number(richEditor.getAttributes('paragraph').indent ?? richEditor.getAttributes('heading').indent ?? 0) > 0
+    if (command === 'list-dash' || command === 'list-star' || command === 'list-emoji') return richEditor.isActive('bulletList')
+    if (command === 'list-checkbox') return richEditor.isActive('taskList')
+    if (command === 'list-numbered') return richEditor.isActive('orderedList')
     if (command === 'paragraph') return richEditor.isActive('paragraph')
     if (command.startsWith('heading-')) return richEditor.isActive('heading', { level: Number(command.replace('heading-', '')) })
     return false
@@ -1496,9 +1687,6 @@
 
       <div class="panel-title">
         <div class="header-actions">
-          <button class="icon-label-button" aria-label="New note" title="New note" on:click={() => createNote()}>
-            <Icon name="new-note" size={18} />
-          </button>
           <button class="icon-only-button" aria-label="Search notes" title="Search notes" on:click={() => searchOpen = !searchOpen}>
             <Icon name="search" size={18} />
           </button>
@@ -1508,17 +1696,29 @@
           <button class="icon-only-button" aria-label="Upload text or markdown" title="Upload text or markdown" on:click={() => uploadInputElement?.click()}>
             <Icon name="upload" size={18} />
           </button>
+          <button
+            class="icon-only-button"
+            aria-label={selectedFolderPath ? 'Rename selected folder' : 'Rename selected note'}
+            title={selectedFolderPath ? 'Rename selected folder' : 'Rename selected note'}
+            disabled={!selectedFolderPath && !selectedNote}
+            on:click={renameSelectedFileTarget}
+          >
+            <Icon name="rename" size={18} />
+          </button>
           <button class="icon-only-button" aria-label="Download selected note" title="Download selected note" disabled={!selectedNote} on:click={downloadSelectedNote}>
             <Icon name="download" size={18} />
           </button>
           <button
-            class="icon-only-button danger"
+            class="icon-only-button danger-action"
             aria-label={selectedFolderCanDelete ? 'Delete selected folder' : 'Delete selected note'}
             title={selectedFolderCanDelete ? 'Delete selected folder' : 'Delete selected note'}
             disabled={!selectedFolderCanDelete && !selectedNote}
             on:click={deleteSelectedFileTarget}
           >
             <Icon name="delete" size={18} />
+          </button>
+          <button class="icon-label-button" aria-label="New note" title="New note" on:click={() => createNote()}>
+            <Icon name="new-note" size={18} />
           </button>
           {#if mode === 'standalone'}
             <button class="icon-label-button" aria-label="Settings" title="Settings" on:click={() => settingsOpen = true}>
@@ -1717,9 +1917,9 @@
   ></div>
 
   <section class="editor-shell">
-    {#if selectedNote}
-      <div class="metadata">
-        <div class="note-title-panel">
+    <div class="metadata">
+      <div class="note-title-panel">
+        {#if selectedNote}
           <input aria-label="Title" bind:value={draftTitle} on:change={saveMetadata} />
           <span
             class={`save-indicator ${saveIndicatorState}`}
@@ -1729,19 +1929,29 @@
           >
             <Icon name="save" size={16} />
           </span>
-          <button
-            class="mobile-files-toggle"
-            aria-label="Open files"
-            title="Files"
-            on:click={() => mobileFilesOpen = true}
-          >
-            <span aria-hidden="true"></span>
-          </button>
-        </div>
+        {:else}
+          <div class="empty-note-title">Notes</div>
+        {/if}
+        <button
+          class="mobile-files-toggle"
+          aria-label="Open files"
+          title="Files"
+          on:click={() => mobileFilesOpen = true}
+        >
+          <span aria-hidden="true"></span>
+        </button>
       </div>
-    {/if}
+    </div>
 
-    <div class="toolbar" aria-label="Editor toolbar">
+    <ActionBar ariaLabel="Editor toolbar" attached="top" wrap="wrap" className="toolbar">
+      <button
+        class:active-action={tocOpen}
+        aria-label="Table of contents"
+        title="Table of contents"
+        on:click={() => tocOpen = !tocOpen}
+      >
+        <Icon name="list" size={18} />
+      </button>
       <button aria-label="Undo" title="Undo" on:click={() => runCommand('undo')}><Icon name="undo" size={18} /></button>
       <button aria-label="Redo" title="Redo" on:click={() => runCommand('redo')}><Icon name="redo" size={18} /></button>
       <label class:active-action={richCommandActive('heading-1', richActiveStateVersion) || richCommandActive('heading-2', richActiveStateVersion) || richCommandActive('heading-3', richActiveStateVersion) || richCommandActive('heading-4', richActiveStateVersion) || richCommandActive('heading-5', richActiveStateVersion) || richCommandActive('heading-6', richActiveStateVersion)} class="icon-select-tool" title="Heading">
@@ -1762,6 +1972,16 @@
       <button class:active-action={richCommandActive('underline', richActiveStateVersion)} aria-label="Underline" title="Underline" on:click={() => runCommand('underline')}><Icon name="underline" size={18} /></button>
       <button class:active-action={richCommandActive('indent', richActiveStateVersion)} aria-label="Indent" title="Indent" on:click={() => runCommand('indent')}><Icon name="indent" size={18} /></button>
       <button aria-label="Outdent" title="Outdent" on:click={() => runCommand('outdent')}><Icon name="outdent" size={18} /></button>
+      <div class="list-menu-control">
+        <button
+          class:active-action={listMenuOpen || richCommandActive('list-dash', richActiveStateVersion) || richCommandActive('list-numbered', richActiveStateVersion)}
+          aria-label="List style"
+          title="List style"
+          on:click={toggleListMenu}
+        >
+          <Icon name="list" size={18} />
+        </button>
+      </div>
       <button class:active-action={richCommandActive('strikethrough', richActiveStateVersion)} aria-label="Strikethrough" title="Strikethrough" on:click={() => runCommand('strikethrough')}><Icon name="strikethrough" size={18} /></button>
       <label title="Text color" class="color-tool">
         <span class="toolbar-glyph text-color-glyph">A</span>
@@ -1796,7 +2016,38 @@
           <option value="'Avenir Next', sans-serif">Avenir</option>
         </select>
       </label>
-    </div>
+    </ActionBar>
+    {#if tocOpen}
+      <button class="toc-backdrop" aria-label="Close table of contents" on:click={() => tocOpen = false}></button>
+      <div class="toc-popover" role="dialog" aria-label="Table of contents">
+        <div class="toc-popover-heading">Table of contents</div>
+        {#if tocHeadings.length > 0}
+          <div class="toc-list">
+            {#each tocHeadings as heading}
+              <button
+                class="toc-item"
+                style={`--toc-indent: ${Math.max(0, heading.level - 1) * 16}px`}
+                on:click={() => jumpToHeading(heading)}
+              >
+                <span>H{heading.level}</span>
+                <strong>{heading.title}</strong>
+              </button>
+            {/each}
+          </div>
+        {:else}
+          <p>No headings in this note.</p>
+        {/if}
+      </div>
+    {/if}
+    {#if listMenuOpen}
+      <div class="list-style-menu" role="menu" aria-label="List style" style={listMenuStyle}>
+        <button role="menuitem" on:click={() => runCommand('list-dash')}><span>•</span><strong>Dash list</strong></button>
+        <button role="menuitem" on:click={() => runCommand('list-star')}><span>★</span><strong>Star list</strong></button>
+        <button role="menuitem" on:click={() => runCommand('list-checkbox')}><span>☐</span><strong>Checkbox list</strong></button>
+        <button role="menuitem" on:click={() => runCommand('list-numbered')}><span>1.</span><strong>Numbered list</strong></button>
+        <button role="menuitem" on:click={() => runCommand('list-emoji')}><span>😀</span><strong>Emoji list</strong></button>
+      </div>
+    {/if}
 
     {#if selectedNote}
       <div class:markdown-mode={editorRenderMode === 'markdown'} class="editor-workspace">

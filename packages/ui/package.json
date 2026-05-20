@@ -5,7 +5,11 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./Icon": "./src/Icon.svelte"
+    "./Icon": "./src/Icon.svelte",
+    "./FileNavigator": "./src/FileNavigator.svelte",
+    "./ActionBar": "./src/ActionBar.svelte",
+    "./ActionButton": "./src/ActionButton.svelte",
+    "./MobileSuiteMenu": "./src/MobileSuiteMenu.svelte"
   },
   "dependencies": {
     "@og-suite/contracts": "0.1.0"

@@ -1,5 +1,11 @@
 <script lang="ts">
   import type { DesignTokens } from '@og-suite/contracts'
+  import AudioApp from '@og-suite/audio'
+  import { audioManifest } from '@og-suite/audio/manifest'
+  import FeedApp from '@og-suite/feed'
+  import { feedManifest } from '@og-suite/feed/manifest'
+  import FilesApp from '@og-suite/files'
+  import { filesManifest } from '@og-suite/files/manifest'
   import NotesApp from '@og-suite/notes'
   import AppearanceSettings from '@og-suite/notes/AppearanceSettings'
   import { notesManifest } from '@og-suite/notes/manifest'
@@ -12,8 +18,20 @@
 
   const apps = [
     {
+      ...registerApp(feedManifest),
+      component: FeedApp,
+    },
+    {
       ...registerApp(notesManifest),
       component: NotesApp,
+    },
+    {
+      ...registerApp(filesManifest),
+      component: FilesApp,
+    },
+    {
+      ...registerApp(audioManifest),
+      component: AudioApp,
     },
   ]
 
@@ -23,8 +41,6 @@
   $: activeApp = apps.find((app) => app.manifest.id === activeAppId) ?? apps[0]
   $: suiteNavItems = [
     ...apps.map((app) => ({ id: app.manifest.id, name: app.manifest.name })),
-    { id: 'audio', name: 'Audio', disabled: true },
-    { id: 'dump-catalog', name: 'Dump Catalog', disabled: true },
   ]
 
   $: applyTokens(tokens)
@@ -49,8 +65,6 @@
           <span>{app.manifest.name}</span>
         </button>
       {/each}
-      <button class="nav-link" disabled><Icon name="microphone" size={18} /><span>Audio</span></button>
-      <button class="nav-link" disabled><Icon name="add-list" size={18} /><span>Dump Catalog</span></button>
     </nav>
 
     <div class="topbar-actions">

@@ -6,11 +6,19 @@
       "@og-suite/contracts": ["../../packages/contracts/src/index.ts"],
       "@og-suite/runtime": ["../../packages/runtime/src/index.ts"],
       "@og-suite/ui": ["../../packages/ui/src/index.ts"],
+      "@og-suite/ui/ActionBar": ["../../packages/ui/src/ActionBar.svelte"],
+      "@og-suite/ui/ActionButton": ["../../packages/ui/src/ActionButton.svelte"],
+      "@og-suite/ui/FileNavigator": ["../../packages/ui/src/FileNavigator.svelte"],
       "@og-suite/ui/Icon": ["../../packages/ui/src/Icon.svelte"],
+      "@og-suite/ui/MobileSuiteMenu": ["../../packages/ui/src/MobileSuiteMenu.svelte"],
       "@og-suite/notes": ["../notes/src/NotesApp.svelte"],
       "@og-suite/notes/AppearanceSettings": ["../notes/src/AppearanceSettings.svelte"],
-      "@og-suite/notes/*": ["../notes/src/*"]
+      "@og-suite/notes/*": ["../notes/src/*"],
+      "@og-suite/files": ["../files/src/FilesApp.svelte"],
+      "@og-suite/files/*": ["../files/src/*"],
+      "@og-suite/audio": ["../audio/src/AudioApp.svelte"],
+      "@og-suite/audio/*": ["../audio/src/*"]
     }
   },
-  "include": ["src/**/*.ts", "src/**/*.svelte", "vite.config.ts", "../notes/src/**/*.svelte", "../notes/src/**/*.ts"]
+  "include": ["src/**/*.ts", "src/**/*.svelte", "vite.config.ts", "../notes/src/**/*.svelte", "../notes/src/**/*.ts", "../files/src/**/*.svelte", "../files/src/**/*.ts", "../audio/src/**/*.svelte", "../audio/src/**/*.ts"]
 }

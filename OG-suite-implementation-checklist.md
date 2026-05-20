@@ -1,7 +1,7 @@
 # OG Suite Implementation Checklist
 
 ## Summary
-Create a clean Svelte + Tauri + Rust + Postgres app-suite foundation where apps are build-time modules that can run standalone or inside the suite. Implement Notes first as the proof of sync, local-first persistence, and concurrent CRDT editing.
+Create a clean Svelte + Tauri + Rust + Postgres app-suite foundation where apps are build-time modules that can run standalone or inside the suite. Implement Notes first as the proof of sync, local-first persistence, and concurrent CRDT editing. Feed replaces the old Dump Catalog concept as the suite history/activity tracker.
 
 ## Checklist
 
@@ -10,7 +10,7 @@ Create a clean Svelte + Tauri + Rust + Postgres app-suite foundation where apps 
   - `apps/suite`
   - `apps/notes`
   - `apps/audio`
-  - `apps/dump-catalog`
+  - `apps/feed`
   - `backend`
   - `packages/ui`
   - `packages/runtime`
@@ -52,10 +52,22 @@ Create a clean Svelte + Tauri + Rust + Postgres app-suite foundation where apps 
   - density
   - font stack
 - [x] Build compact shell layout for mobile and desktop.
+- [x] Standardize mobile suite navigation:
+  - shared hamburger menu component for mobile app/page menus
+  - mobile menu includes suite app navigation when the app runs inside Suite
+  - mobile menu includes settings access when Suite settings are available
+  - mobile menu supports app-specific extra actions through a tools slot
+  - Feed uses the shared mobile hamburger for suite nav, settings, and refresh
+  - Audio uses the shared mobile hamburger for suite nav, settings, sync, refresh, and folder actions
+  - Notes keeps its single file-drawer hamburger because that drawer already contains suite navigation and note file tools
 - [x] Build toolbar primitives:
   - desktop wrapping toolbar
   - mobile side-swiping toolbar carousel
   - dropdown multi-tools
+  - shared `ActionBar` container for app-specific toolbars and action rows
+  - shared `ActionButton` button treatment with default, primary, danger, icon, and icon-only states
+  - Notes editor toolbar uses the shared action bar while keeping Notes-specific rich text controls
+  - Audio recording, folder, transcript, rename, export, retranscribe, and delete actions use the shared button treatment
 - [x] Apply tokens consistently in Suite and Notes standalone.
 
 ### 4. Settings Menu
@@ -332,7 +344,174 @@ Create a clean Svelte + Tauri + Rust + Postgres app-suite foundation where apps 
 - [x] Show active collaborators/cursors through presence.
 - [x] Confirm Notes runs inside Suite and standalone from the same module.
 
-### 9. Verification
+### 9. Feed Activity Tracker
+Goal: Feed is the suite-wide public activity timeline. It should show what changed across the suite, who did it, and when it happened, newest to oldest. It also owns a favorites area where users can pin frequently used files, folders, documents, or tools.
+
+- [x] Rename the old Dump Catalog placeholder to Feed.
+- [x] Update Suite navigation language from Dump Catalog to Feed.
+- [x] Move Feed to the first Suite nav position so it is the default suite overview.
+- [x] Define Feed manifest and route.
+- [x] Define Feed activity event model:
+  - [x] note created
+  - [x] document edited
+  - [x] note metadata/title updated
+  - [x] note deleted
+  - [x] folder created
+  - [x] folder deleted
+  - [x] favorite added/removed
+  - [ ] file/note moved as a distinct action instead of metadata update
+  - [ ] folder moved as a distinct action instead of folder metadata cascade
+  - [ ] settings/theme changed
+  - [ ] sync/concurrency events worth showing later
+- [x] Track baseline actor metadata for every event:
+  - [x] user id
+  - [x] display name
+  - [x] workspace
+  - [x] timestamp
+  - [ ] client/device id when useful
+- [x] Add backend schema for activity feed events.
+- [x] Add backend schema for user favorites.
+- [x] Add repository methods for appending and querying feed events.
+- [x] Add repository methods for creating/querying/removing favorites.
+- [x] Add API routes:
+  - `GET /api/v1/feed`
+  - `GET /api/v1/feed/favorites`
+  - `POST /api/v1/feed/favorites`
+  - `DELETE /api/v1/feed/favorites/:id`
+- [x] Emit Feed events from Notes actions:
+  - [x] note create
+  - [x] rich document edit
+  - [x] note metadata/title change
+  - [x] note delete
+  - [x] folder create/delete through sync operations
+  - [ ] note move between folders as a distinct move action
+  - [ ] folder move as a distinct move action
+- [x] Build compact Feed UI:
+  - [x] newest-to-oldest public activity list
+  - [x] favorites section at the top
+  - [x] quick favorite tools
+  - [x] favorite notes/folders/documents/tools from timeline rows
+  - [x] empty/loading/error states
+  - [ ] filters by app, actor, action type, and file/folder
+  - [ ] item details panel for before/after metadata
+- [ ] Keep Feed extensible for future suite actions beyond Notes.
+
+### 10. Audio Recorder
+Goal: Audio is the suite recording app. It should let users record audio, save recordings remotely, generate searchable transcripts, and represent speaker/channel information clearly enough to support meetings, interviews, voice notes, and multi-channel recordings later.
+
+- [x] Define Audio manifest and route.
+- [x] Enable Audio in Suite navigation after the baseline page exists.
+- [x] Define standalone/mobile Audio goal:
+  - [x] standalone mobile Audio is recorder-first, not a full library interface
+  - [x] standalone recorder stores audio locally until backend sync succeeds
+  - [x] standalone recorder hooks into backend transcript queue after upload
+  - [x] behavior setting controls whether local audio is removed after backend backup
+- [ ] Build compact Audio UI:
+  - [x] recording controls: record, pause, resume, stop
+  - [x] elapsed time and recording status indicator
+  - [x] live audio input detection meter so users know the mic is receiving sound
+  - [ ] input device selector
+  - [x] recording list/history in suite mode
+  - [x] search recordings from the Audio file/library section
+  - [x] recording detail view with browser playback for synced recordings
+  - [x] rename selected synced recording from the detail panel
+  - [x] delete selected synced recording from the detail panel
+  - [x] send selected recording back for retranscription from the detail panel
+  - [x] use shared action bars/buttons while keeping Audio-specific actions
+  - [x] upload audio/video files into the same transcription pipeline
+  - [x] expose upload from the Audio file/library action bar and mobile menu
+  - [x] transcript panel alongside or below playback in suite mode
+  - [x] export transcript captions as WebVTT
+  - [x] export transcript captions as SRT
+  - [x] use a shared file navigator component for folder/file hierarchy
+  - [x] create Audio folders in the recordings panel
+  - [x] drag recordings into Audio folders
+  - [x] drag Audio folders into other Audio folders
+  - [ ] migrate Notes sidebar to the shared file navigator component after matching mobile long-press behavior
+- [ ] Add browser recording foundation:
+  - [x] request microphone permission safely
+  - [x] capture audio with `MediaRecorder`
+  - [x] store local draft blobs before upload
+  - [ ] recover interrupted local recordings when possible
+  - [x] upload completed recordings to the backend
+  - [x] upload existing audio/video files to the backend
+- [ ] Add backend audio model:
+  - [x] recordings metadata
+  - [x] audio asset/blob reference
+  - [x] transcript segments
+  - [x] speaker labels
+  - [x] channel labels
+  - [x] workspace/owner metadata
+  - [x] created/updated/deleted timestamps
+- [ ] Add backend audio routes:
+  - [x] `GET /api/v1/audio/recordings`
+  - [x] `POST /api/v1/audio/recordings`
+  - [x] `GET /api/v1/audio/recordings/:id`
+  - [x] `DELETE /api/v1/audio/recordings/:id`
+  - [x] `POST /api/v1/audio/recordings/:id/audio`
+  - [x] `GET /api/v1/audio/recordings/:id/transcript`
+  - [ ] `POST /api/v1/audio/recordings/:id/transcript`
+- [ ] Add transcript processing pipeline:
+  - [ ] keep transcription local to the backend server; no uploaded audio leaves the user's controlled backend
+  - [x] add configurable local transcription engine setting with `disabled`, generic command, and `whisper.cpp` modes
+  - [x] add generic command adapter using `OG_TRANSCRIPTION_ENGINE=command` and `OG_TRANSCRIPTION_COMMAND`
+  - [x] add `whisper.cpp` adapter using `OG_TRANSCRIPTION_ENGINE=whisper_cpp`, `OG_WHISPER_CPP_BIN`, and `OG_WHISPER_CPP_MODEL`
+  - [x] add `scripts/setup-local-whisper.sh` to install `whisper.cpp`, `ffmpeg`, and a repo-local tiny English model
+  - [x] auto-detect `backend/models/ggml-tiny.en.bin` with `whisper-cli` so local transcription works without extra env vars
+  - [x] smoke test backend upload to ready transcript using local `whisper.cpp`
+  - [x] normalize uploaded browser audio through `ffmpeg` before passing it to `whisper.cpp`
+  - [x] run local transcription from the backend after upload when an engine is configured
+  - [ ] move transcription execution to a durable background worker queue
+  - [ ] add `faster-whisper` candidate adapter
+  - [ ] add `WhisperX + pyannote` candidate adapter
+  - [ ] store model files/checkpoints on the backend host with documented paths and privacy expectations
+  - [x] queue transcription job after upload
+  - [x] store transcript as timestamped segments
+  - [x] show transcription status in the UI
+  - [x] add retry route for transcription jobs
+  - [ ] persist local transcript job errors and retry state
+- [ ] Research and implement backend-local audio cleanup/enhancement options:
+  - [ ] background noise reduction for uploaded and recorded audio
+  - [ ] speech enhancement before transcription
+  - [ ] optional non-destructive cleaned audio derivative while preserving original
+  - [ ] evaluate local/server-friendly candidates such as FFmpeg filters, RNNoise, DeepFilterNet, and Demucs-style source separation
+  - [ ] expose cleanup controls in Audio behavior/settings after a backend approach is chosen
+  - [ ] support transcript refresh/retry
+  - [ ] allow manual transcript correction later
+- [ ] Add channel-aware transcript support:
+  - [ ] detect mono vs multi-channel recordings
+  - [ ] preserve source channel number on transcript segments
+  - [ ] display separate channel lanes when multiple channels exist
+  - [ ] allow channel names to be edited
+  - [ ] support recordings where one speaker is isolated per channel
+- [ ] Add speaker/voice detection support:
+  - [ ] run speaker diarization locally on the backend server
+  - [ ] diarize who is speaking when channels are not isolated
+  - [ ] assign provisional speaker labels like Speaker 1, Speaker 2
+  - [ ] let users rename speakers
+  - [ ] show speaker labels on transcript segments
+  - [ ] keep speaker identity scoped to workspace/user privacy rules
+- [ ] Wire Audio to local-first/sync expectations:
+  - [x] recording metadata survives refresh
+  - [ ] transcript metadata syncs remotely
+  - [x] upload queue resumes when connection returns
+  - [x] deleted recordings create tombstones
+- [ ] Emit Feed events from Audio actions:
+  - [x] recording created
+  - [x] recording uploaded
+  - [x] transcript queued
+  - [ ] transcript generated
+  - [ ] transcript corrected
+  - [ ] speaker/channel renamed
+  - [ ] recording deleted
+- [ ] Add Audio verification:
+  - [ ] record and play back a short audio clip
+  - [ ] upload recording and restore it after refresh
+  - [ ] transcript segments render in timestamp order
+  - [ ] multi-channel transcript renders channel labels
+  - [ ] speaker labels render and can be renamed
+
+### 11. Verification
 - [x] Backend tests:
   - health route
   - migrations
@@ -364,4 +543,4 @@ Create a clean Svelte + Tauri + Rust + Postgres app-suite foundation where apps 
 - `sweet` is reference material only, not the codebase to refactor.
 - Postgres is the v1 backend database.
 - App composition is build-time module registration, not runtime plugin loading.
-- Notes is the first complete proof before Audio Recorder or OG Dump Catalog.
+- Notes is the first complete proof; Feed and Audio build on the same suite runtime, sync, and backend patterns.

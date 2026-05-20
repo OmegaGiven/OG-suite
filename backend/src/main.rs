@@ -4,6 +4,7 @@ mod models;
 mod repository;
 mod routes;
 mod state;
+mod transcription;
 
 use crate::{db::run_migrations_from_env, routes::router, state::AppState};
 use std::net::SocketAddr;
@@ -28,4 +29,3 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     axum::serve(listener, app).await?;
     Ok(())
 }
-

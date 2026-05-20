@@ -1,4 +1,8 @@
-use crate::{models::{CrdtUpdate, PresencePeer}, repository::InMemoryRepository};
+use crate::{
+    models::{CrdtUpdate, PresencePeer},
+    repository::InMemoryRepository,
+    transcription::LocalTranscriptionEngine,
+};
 use chrono::Utc;
 use std::{collections::HashMap, sync::Arc};
 use tokio::sync::{RwLock, broadcast};
@@ -6,6 +10,7 @@ use tokio::sync::{RwLock, broadcast};
 #[derive(Clone)]
 pub struct AppState {
     pub repo: InMemoryRepository,
+    pub transcription: LocalTranscriptionEngine,
     presence: Arc<RwLock<HashMap<String, PresenceRoom>>>,
     document_updates: Arc<RwLock<HashMap<String, DocumentUpdateRoom>>>,
 }
@@ -21,14 +26,23 @@ struct DocumentUpdateRoom {
 
 impl AppState {
     pub fn new() -> Self {
+        Self::with_transcription(LocalTranscriptionEngine::from_env())
+    }
+
+    pub fn with_transcription(transcription: LocalTranscriptionEngine) -> Self {
         Self {
             repo: InMemoryRepository::new(),
+            transcription,
             presence: Arc::new(RwLock::new(HashMap::new())),
             document_updates: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
-    pub async fn join_presence(&self, document_id: &str, client_id: String) -> broadcast::Receiver<Vec<PresencePeer>> {
+    pub async fn join_presence(
+        &self,
+        document_id: &str,
+        client_id: String,
+    ) -> broadcast::Receiver<Vec<PresencePeer>> {
         let mut rooms = self.presence.write().await;
         let room = rooms.entry(document_id.to_string()).or_insert_with(|| {
             let (tx, _) = broadcast::channel(64);
@@ -53,7 +67,12 @@ impl AppState {
         room.tx.subscribe()
     }
 
-    pub async fn update_presence_cursor(&self, document_id: &str, client_id: &str, cursor: Option<usize>) {
+    pub async fn update_presence_cursor(
+        &self,
+        document_id: &str,
+        client_id: &str,
+        cursor: Option<usize>,
+    ) {
         let mut rooms = self.presence.write().await;
         if let Some(room) = rooms.get_mut(document_id) {
             if let Some(peer) = room.peers.get_mut(client_id) {
@@ -74,7 +93,10 @@ impl AppState {
         }
     }
 
-    pub async fn join_document_updates(&self, document_id: &str) -> broadcast::Receiver<CrdtUpdate> {
+    pub async fn join_document_updates(
+        &self,
+        document_id: &str,
+    ) -> broadcast::Receiver<CrdtUpdate> {
         let mut rooms = self.document_updates.write().await;
         let room = rooms.entry(document_id.to_string()).or_insert_with(|| {
             let (tx, _) = broadcast::channel(256);

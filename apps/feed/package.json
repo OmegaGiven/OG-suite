@@ -1,0 +1,16 @@
+{
+  "name": "@og-suite/feed",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/FeedApp.svelte",
+    "./manifest": "./src/manifest.ts"
+  },
+  "dependencies": {
+    "@og-suite/contracts": "0.1.0",
+    "@og-suite/runtime": "0.1.0",
+    "@og-suite/ui": "0.1.0",
+    "svelte": "^5.0.0"
+  }
+}

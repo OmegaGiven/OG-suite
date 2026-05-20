@@ -1,0 +1,392 @@
+.audio-app {
+  display: grid;
+  grid-template-areas:
+    "library recorder"
+    "library transcript";
+  grid-template-columns: minmax(260px, 0.9fr) minmax(320px, 1.8fr);
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: var(--space-md, 12px);
+  min-height: calc(100vh - 51px);
+  padding: var(--page-gutter, 16px);
+  color: var(--text, var(--og-text));
+}
+
+.audio-app.recorder-only {
+  grid-template-columns: minmax(0, 1fr);
+  min-height: 100vh;
+  padding: 0;
+}
+
+.recorder-panel,
+.library-panel,
+.transcript-panel {
+  min-width: 0;
+  border: 1px solid var(--border, var(--og-border));
+  border-radius: var(--panel-radius, var(--og-panel-radius));
+  background: var(--panel-surface, var(--og-surface));
+  box-shadow: var(--shadow, var(--og-shadow));
+  backdrop-filter: blur(18px);
+}
+
+.recorder-panel {
+  grid-area: recorder;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: var(--space-md, 12px);
+  padding: var(--space-sm, 8px);
+}
+
+.recorder-only .recorder-panel {
+  min-height: 100vh;
+  border: 0;
+  border-radius: 0;
+}
+
+.recorder-heading,
+.panel-title,
+.sync-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.panel-title,
+.sync-row {
+  justify-content: space-between;
+}
+
+.recorder-heading-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.transcript-title {
+  align-items: flex-start;
+}
+
+.panel-actions {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.library-action-bar {
+  justify-content: flex-start;
+  margin-bottom: 10px;
+}
+
+.rename-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.rename-form input {
+  min-width: 180px;
+  min-height: 34px;
+  border: 1px solid var(--border, var(--og-border));
+  border-radius: var(--field-radius, var(--og-field-radius));
+  background: var(--surface-subtle, var(--og-surface-subtle));
+  color: var(--text, var(--og-text));
+  padding: 6px 9px;
+}
+
+.eyebrow,
+h1,
+h2,
+p {
+  margin: 0;
+}
+
+.eyebrow,
+.empty-copy,
+.status-copy,
+.error-copy,
+.recording-row small,
+.panel-title span,
+.sync-row span {
+  color: var(--muted, var(--og-muted));
+  font-size: 12px;
+}
+
+h1 {
+  font-size: 24px;
+}
+
+h2 {
+  font-size: 15px;
+}
+
+.recording-light {
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  background: var(--muted, var(--og-muted));
+}
+
+.recording-light.active {
+  background: #ef4444;
+  box-shadow: 0 0 0 5px rgb(239 68 68 / 18%);
+}
+
+.timer {
+  font-variant-numeric: tabular-nums;
+  font-size: clamp(48px, 14vw, 86px);
+  font-weight: 760;
+  letter-spacing: 0;
+  text-align: center;
+}
+
+.input-meter {
+  --input-level: 0;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  align-self: center;
+  width: 74px;
+  height: 44px;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--border, var(--og-border)) 70%, transparent);
+  border-radius: 999px;
+  background:
+    radial-gradient(
+      circle at center,
+      color-mix(in srgb, var(--accent, var(--og-accent)) calc(var(--input-level) * 42%), transparent) 0 42%,
+      transparent 43%
+    ),
+    var(--surface-subtle, var(--og-surface-subtle));
+  color: color-mix(in srgb, var(--text, var(--og-text)) 70%, var(--muted, var(--og-muted)));
+  font: inherit;
+  cursor: pointer;
+  overflow: hidden;
+  transition: border-color 140ms ease, box-shadow 140ms ease, color 140ms ease, transform 140ms ease;
+}
+
+.input-meter.active {
+  color: var(--text, var(--og-text));
+  box-shadow: 0 0 0 calc(3px + (var(--input-level) * 10px)) color-mix(in srgb, var(--accent, var(--og-accent)) 16%, transparent);
+}
+
+.input-meter:hover:not(:disabled),
+.input-meter:focus-visible {
+  border-color: color-mix(in srgb, var(--accent, var(--og-accent)) 70%, var(--border, var(--og-border)));
+  color: var(--text, var(--og-text));
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent, var(--og-accent)) 14%, transparent);
+  outline: none;
+}
+
+.input-meter:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.input-meter:disabled {
+  cursor: default;
+}
+
+.input-meter span {
+  position: absolute;
+  top: 50%;
+  width: 5px;
+  height: calc(8px + (var(--input-level) * 24px));
+  border-radius: 999px;
+  background: var(--accent, var(--og-accent));
+  opacity: calc(0.28 + (var(--input-level) * 0.72));
+  transform: translateY(-50%);
+  transition: height 70ms linear, opacity 70ms linear;
+}
+
+.input-meter span:first-child {
+  left: 15px;
+}
+
+.input-meter span:last-child {
+  right: 15px;
+}
+
+.recording-controls {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+}
+
+.primary-action,
+.secondary-action,
+.danger-action,
+.upload-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 34px;
+  border: 1px solid var(--border, var(--og-border));
+  border-radius: var(--field-radius, var(--og-field-radius));
+  padding: 7px 11px;
+  color: var(--text, var(--og-text));
+  cursor: pointer;
+}
+
+.upload-action {
+  align-self: center;
+  background: var(--surface-subtle, var(--og-surface-subtle));
+  font-size: 13px;
+}
+
+.upload-action input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.primary-action {
+  border-color: color-mix(in srgb, var(--accent, var(--og-accent)) 42%, var(--border, var(--og-border)));
+  background: var(--accent, var(--og-accent));
+  color: var(--accent-contrast, var(--og-accent-contrast));
+}
+
+.secondary-action {
+  background: var(--surface-subtle, var(--og-surface-subtle));
+}
+
+.danger-action {
+  border-color: rgb(220 38 38 / 38%);
+  background: rgb(220 38 38 / 12%);
+  color: #b91c1c;
+}
+
+button:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.behavior-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted, var(--og-muted));
+  font-size: 13px;
+}
+
+.library-search {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 10px;
+  padding: 0 10px;
+  min-height: var(--og-control-height, 34px);
+  border: 1px solid color-mix(in srgb, var(--border, var(--og-border)) 84%, transparent);
+  border-radius: var(--field-radius, var(--og-field-radius));
+  background: var(--surface-subtle, var(--og-surface-subtle));
+  color: var(--muted, var(--og-muted));
+}
+
+.library-search input {
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text, var(--og-text));
+  outline: none;
+}
+
+.library-panel,
+.transcript-panel {
+  min-height: 0;
+  padding: var(--space-sm, 8px);
+}
+
+.library-panel {
+  grid-area: library;
+}
+
+.transcript-panel {
+  grid-area: transcript;
+}
+
+.recording-list,
+.transcript-list {
+  display: grid;
+  gap: 8px;
+}
+
+.recording-row {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  border: 1px solid color-mix(in srgb, var(--border, var(--og-border)) 72%, transparent);
+  border-radius: max(6px, calc(var(--panel-radius, var(--og-panel-radius)) - 8px));
+  background: var(--panel-surface-subtle, var(--og-surface-subtle));
+  color: var(--text, var(--og-text));
+  padding: 9px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.recording-row.active {
+  border-color: color-mix(in srgb, var(--accent, var(--og-accent)) 45%, var(--border, var(--og-border)));
+  background: color-mix(in srgb, var(--accent-soft, var(--og-accent-soft)) 72%, transparent);
+}
+
+.audio-player {
+  width: 100%;
+  margin-bottom: 10px;
+}
+
+.transcript-segment {
+  display: grid;
+  gap: 6px;
+  border: 1px solid color-mix(in srgb, var(--border, var(--og-border)) 72%, transparent);
+  border-radius: max(6px, calc(var(--panel-radius, var(--og-panel-radius)) - 8px));
+  background: var(--panel-surface-subtle, var(--og-surface-subtle));
+  padding: 10px;
+}
+
+.transcript-segment div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.transcript-segment span {
+  color: var(--muted, var(--og-muted));
+  font-size: 11px;
+}
+
+.error-copy {
+  color: #b91c1c;
+}
+
+@media (max-width: 760px) {
+  .audio-app {
+    grid-template-areas: none;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: none;
+    min-height: 100vh;
+    padding: 0;
+  }
+
+  .recorder-panel,
+  .library-panel,
+  .transcript-panel {
+    order: initial;
+  }
+
+  .recorder-panel,
+  .library-panel,
+  .transcript-panel {
+    border-left: 0;
+    border-right: 0;
+    border-radius: 0;
+  }
+}
