@@ -1726,6 +1726,12 @@
 <main class:resizing-sidebar={resizingSidebar} class="notes-app" data-mode={mode} style={`--notes-pane-width: ${sidebarWidth}px;`}>
   <aside class:mobile-open={mobileFilesOpen} class="notes-list" aria-label="Notes">
     <div class="notes-list-panel">
+      {#if mode === 'standalone'}
+        <button class="notes-menu-close" aria-label="Close notes menu" title="Close notes menu" on:click={() => mobileFilesOpen = false}>
+          <span aria-hidden="true"></span>
+        </button>
+      {/if}
+
       {#if mode === 'suite'}
         <MobileSuiteTopBar
           navItems={suiteNavItems}

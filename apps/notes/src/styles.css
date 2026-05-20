@@ -321,6 +321,7 @@ button:has(.og-icon) {
 }
 
 .notes-list-panel {
+  position: relative;
   min-height: calc(100vh - (var(--page-gutter, var(--og-margin)) * 2));
   padding: var(--space-sm, 8px);
   border: 1px solid var(--border, var(--og-border));
@@ -329,6 +330,10 @@ button:has(.og-icon) {
   backdrop-filter: blur(14px);
   box-shadow: var(--shadow, var(--og-shadow));
   overflow: auto;
+}
+
+.notes-menu-close {
+  display: none;
 }
 
 .panel-title,
@@ -1829,6 +1834,60 @@ footer {
     border: 0;
     border-radius: 0;
     overflow: auto;
+  }
+
+  .notes-menu-close {
+    position: absolute;
+    top: max(14px, calc(env(safe-area-inset-top) + 4px));
+    right: 10px;
+    z-index: 4;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    min-width: 34px;
+    height: 34px;
+    min-height: 34px;
+    padding: 0;
+    border: 1px solid var(--border, var(--og-border));
+    border-radius: var(--field-radius, var(--og-field-radius));
+    background: var(--action-bar-bg, var(--og-action-bar-bg));
+    color: var(--text, var(--og-text));
+  }
+
+  .notes-menu-close span,
+  .notes-menu-close span::before,
+  .notes-menu-close span::after {
+    display: block;
+    width: 15px;
+    height: 2px;
+    border-radius: 999px;
+    background: currentColor;
+  }
+
+  .notes-menu-close span {
+    position: relative;
+    background: transparent;
+  }
+
+  .notes-menu-close span::before,
+  .notes-menu-close span::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+  }
+
+  .notes-menu-close span::before {
+    transform: rotate(45deg);
+  }
+
+  .notes-menu-close span::after {
+    transform: rotate(-45deg);
+  }
+
+  .notes-list-panel > .notes-menu-close + .panel-title {
+    padding-right: 48px;
   }
 
   .toolbar,
