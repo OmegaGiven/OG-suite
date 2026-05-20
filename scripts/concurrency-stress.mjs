@@ -1,7 +1,7 @@
 import { chromium } from '@playwright/test'
 
-const appUrl = 'http://localhost:5173/?stress=100wpm'
-const apiUrl = 'http://127.0.0.1:8080'
+const appUrl = process.env.OG_STRESS_APP_URL ?? 'http://localhost:5173/?stress=100wpm'
+const apiUrl = process.env.OG_STRESS_API_URL ?? 'http://127.0.0.1:8080'
 const title = `Stress ${Date.now()}`
 const seedText = 'Seed line before the remote flush starts.\n'
 const desktopText =
@@ -10,6 +10,7 @@ const mobileText =
   'Mobile burst one keeps typing while sync flushes in the background. Mobile burst two should not disappear after the server answers. Mobile burst three keeps caret position stable under heavy input.\n'
 const bravePath = '/Applications/Brave Browser.app/Contents/MacOS/Brave Browser'
 
+const session = await getStressSession()
 const noteResponse = await fetch(`${apiUrl}/api/v1/notes`, {
   method: 'POST',
   headers: { 'content-type': 'application/json' },
@@ -29,6 +30,7 @@ const mobile = await browser.newContext({
   userAgent:
     'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
 })
+await Promise.all([prepareContext(desktop, session), prepareContext(mobile, session)])
 
 const desktopPage = await desktop.newPage()
 const mobilePage = await mobile.newPage()
@@ -108,3 +110,66 @@ console.log(
     2,
   ),
 )
+
+async function prepareContext(context, authSession) {
+  await context.addInitScript(
+    ({ apiUrl, authSession }) => {
+      localStorage.setItem('og-suite:server-url', apiUrl)
+      localStorage.setItem('og-suite:auth:access-token', authSession.accessToken)
+      localStorage.setItem('og-suite:auth:refresh-token', authSession.refreshToken)
+      localStorage.setItem('og-suite:auth:expires-at', authSession.expiresAt)
+      localStorage.removeItem('og-suite:notes:local-only')
+    },
+    { apiUrl, authSession },
+  )
+}
+
+async function getStressSession() {
+  const username = 'stress-admin'
+  const password = 'stress-password-123'
+  const directLogin = await login(username, password)
+  if (directLogin) return directLogin
+
+  const adminLogin = await login('admin', 'password')
+  if (adminLogin?.user?.mustChangePassword) {
+    const setup = await fetch(`${apiUrl}/api/v1/auth/complete-setup`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${adminLogin.accessToken}`,
+      },
+      body: JSON.stringify({
+        username,
+        displayName: 'Stress Admin',
+        password,
+        confirmPassword: password,
+      }),
+    })
+    if (setup.ok) {
+      await setup.json()
+      const session = await login(username, password)
+      if (session) return session
+    }
+  }
+
+  const registered = await fetch(`${apiUrl}/api/v1/auth/register`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ username, displayName: 'Stress Admin', password }),
+  })
+  if (registered.ok) return registered.json()
+
+  const fallbackLogin = await login(username, password)
+  if (fallbackLogin) return fallbackLogin
+  throw new Error(`Could not create stress auth session: ${registered.status} ${await registered.text()}`)
+}
+
+async function login(username, password) {
+  const response = await fetch(`${apiUrl}/api/v1/auth/login`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ username, password }),
+  })
+  if (!response.ok) return null
+  return response.json()
+}

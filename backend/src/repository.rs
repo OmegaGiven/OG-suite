@@ -783,8 +783,18 @@ impl SuiteRepository for InMemoryRepository {
                 data.tombstones.remove(&("notes".to_string(), note.id));
                 data.tombstones
                     .remove(&("documents".to_string(), document.id));
-                data.documents.insert(document.id, document);
-                data.notes.insert(note.id, note);
+                data.documents
+                    .entry(document.id)
+                    .and_modify(|existing| merge_document_state(existing, document.clone()))
+                    .or_insert(document);
+                data.notes
+                    .entry(note.id)
+                    .and_modify(|existing| {
+                        if note.updated_at >= existing.updated_at {
+                            *existing = note.clone();
+                        }
+                    })
+                    .or_insert(note);
                 self.persist_snapshot(&data)?;
                 Ok(())
             }
@@ -1162,6 +1172,36 @@ fn compact_if_needed(document: &mut CrdtDocumentState) {
     // mergeable and no client contribution is discarded.
 }
 
+fn merge_document_state(existing: &mut CrdtDocumentState, incoming: CrdtDocumentState) {
+    if existing.kind.is_empty() {
+        existing.kind = incoming.kind;
+    }
+    let mut seen_update_ids = existing
+        .updates
+        .iter()
+        .map(|update| update.id)
+        .collect::<std::collections::HashSet<_>>();
+    let mut seen_client_sequences = existing
+        .updates
+        .iter()
+        .map(|update| (update.client_id.clone(), update.sequence))
+        .collect::<std::collections::HashSet<_>>();
+    for update in incoming.updates {
+        if seen_update_ids.contains(&update.id)
+            || seen_client_sequences.contains(&(update.client_id.clone(), update.sequence))
+        {
+            continue;
+        }
+        seen_update_ids.insert(update.id);
+        seen_client_sequences.insert((update.client_id.clone(), update.sequence));
+        existing.updates.push(update);
+        existing.version += 1;
+    }
+    existing.version = existing.version.max(incoming.version);
+    existing.compacted_at = existing.compacted_at.or(incoming.compacted_at);
+    compact_if_needed(existing);
+}
+
 fn notes_registry_entry() -> AppRegistryEntry {
     AppRegistryEntry {
         id: "notes".to_string(),
@@ -1294,5 +1334,40 @@ mod tests {
         assert_eq!(document.snapshot, "");
         assert_eq!(document.updates.len(), 20);
         assert!(document.compacted_at.is_none());
+    }
+
+    #[tokio::test]
+    async fn delayed_create_note_sync_does_not_overwrite_existing_document_updates() {
+        let repo = InMemoryRepository::new();
+        let note = repo
+            .create_note(CreateNoteRequest {
+                title: "Phone draft".to_string(),
+                path: "/".to_string(),
+                tags: vec![],
+                initial_text: String::new(),
+            })
+            .await
+            .unwrap();
+        let stale_document = repo.document(note.document_id).await.unwrap();
+        let server_update = CrdtUpdate {
+            id: Uuid::new_v4(),
+            document_id: note.document_id,
+            client_id: "browser".to_string(),
+            sequence: 1,
+            payload: "server-update".to_string(),
+            created_at: Utc::now(),
+        };
+        repo.append_document_update(server_update.clone()).await.unwrap();
+
+        repo.apply_sync_operation(SyncOperation::CreateNote {
+            note,
+            document: stale_document,
+        })
+        .await
+        .unwrap();
+
+        let document = repo.document(server_update.document_id).await.unwrap();
+        assert_eq!(document.updates.len(), 1);
+        assert_eq!(document.updates[0].id, server_update.id);
     }
 }

@@ -1,7 +1,7 @@
 import { chromium } from '@playwright/test'
 
-const appUrl = 'http://localhost:5173/?stress=rich'
-const apiUrl = 'http://127.0.0.1:8080'
+const appUrl = process.env.OG_STRESS_APP_URL ?? 'http://localhost:5173/?stress=rich'
+const apiUrl = process.env.OG_STRESS_API_URL ?? 'http://127.0.0.1:8080'
 const bravePath = '/Applications/Brave Browser.app/Contents/MacOS/Brave Browser'
 
 const desktopText =
@@ -14,6 +14,7 @@ const desktopParts = ['Desktop rich typing', 'collaborator updates arrive', 'Des
 const peerParts = ['Peer rich typing', 'collaborator updates arrive', 'Peer keeps typing', 'first remote merge']
 const mobileParts = ['Mobile rich typing', 'collaborator updates arrive', 'Mobile keeps typing', 'first remote merge']
 
+const session = await getStressSession()
 const browser = await chromium.launch({ executablePath: bravePath, headless: true })
 
 try {
@@ -112,7 +113,17 @@ async function runScenario({ label, firstText, secondText, expectedParts, second
 async function newRichContext(options) {
   const { width, height, ...contextOptions } = options
   const context = await browser.newContext({ viewport: { width, height }, ...contextOptions })
-  await context.addInitScript(() => localStorage.setItem('og-suite:notes:editor-render-mode', 'rich'))
+  await context.addInitScript(
+    ({ apiUrl, authSession }) => {
+      localStorage.setItem('og-suite:notes:editor-render-mode', 'rich')
+      localStorage.setItem('og-suite:server-url', apiUrl)
+      localStorage.setItem('og-suite:auth:access-token', authSession.accessToken)
+      localStorage.setItem('og-suite:auth:refresh-token', authSession.refreshToken)
+      localStorage.setItem('og-suite:auth:expires-at', authSession.expiresAt)
+      localStorage.removeItem('og-suite:notes:local-only')
+    },
+    { apiUrl, authSession: session },
+  )
   return context
 }
 
@@ -188,4 +199,54 @@ function missingParts(value, expectedParts) {
     .map((part) => part.trim())
     .filter(Boolean)
     .filter((part) => !value.includes(part))
+}
+
+async function getStressSession() {
+  const username = 'stress-admin'
+  const password = 'stress-password-123'
+  const directLogin = await login(username, password)
+  if (directLogin) return directLogin
+
+  const adminLogin = await login('admin', 'password')
+  if (adminLogin?.user?.mustChangePassword) {
+    const setup = await fetch(`${apiUrl}/api/v1/auth/complete-setup`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${adminLogin.accessToken}`,
+      },
+      body: JSON.stringify({
+        username,
+        displayName: 'Stress Admin',
+        password,
+        confirmPassword: password,
+      }),
+    })
+    if (setup.ok) {
+      await setup.json()
+      const session = await login(username, password)
+      if (session) return session
+    }
+  }
+
+  const registered = await fetch(`${apiUrl}/api/v1/auth/register`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ username, displayName: 'Stress Admin', password }),
+  })
+  if (registered.ok) return registered.json()
+
+  const fallbackLogin = await login(username, password)
+  if (fallbackLogin) return fallbackLogin
+  throw new Error(`Could not create stress auth session: ${registered.status} ${await registered.text()}`)
+}
+
+async function login(username, password) {
+  const response = await fetch(`${apiUrl}/api/v1/auth/login`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ username, password }),
+  })
+  if (!response.ok) return null
+  return response.json()
 }

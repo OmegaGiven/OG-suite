@@ -3,7 +3,7 @@
   import type { DesignTokens } from '@og-suite/contracts'
   import { applyUpdates, createDocumentState, createTextDiffUpdate, decodeYUpdate, encodeYUpdate, hydrateYDoc } from '@og-suite/crdt'
   import type { CrdtDocumentState, CrdtUpdate, Note, NoteFolder, PresencePeer, SyncEnvelope } from '@og-suite/contracts'
-  import { createRuntimeId } from '@og-suite/runtime'
+  import { createHttpApiClient, createRuntimeId } from '@og-suite/runtime'
   import type { RuntimeServices } from '@og-suite/runtime'
   import { bootstrapWorkspace, flushQueuedOperations, mergeEnvelope, pullChanges, queueOperation } from '@og-suite/sync'
   import { Editor, Extension } from '@tiptap/core'
@@ -63,6 +63,17 @@
   export let onOpenSuiteSettings: (() => void) | undefined = undefined
   export let openTarget: SuiteOpenTarget | null = null
   export let onBackupToServer: (() => void) | undefined = undefined
+  export let onOpenServerManager: (() => void) | undefined = undefined
+  export let activeServerUrl = ''
+  export let connectedServers: Array<{
+    id: string
+    url: string
+    username: string
+    displayName: string
+    workspaceName: string
+    accessToken?: string
+    active: boolean
+  }> = []
 
   let envelope: SyncEnvelope | null = null
   let selectedNoteId = ''
@@ -71,6 +82,11 @@
   let draftTitle = ''
   let draftPath = '/'
   let status = 'Starting'
+  let loggedStatus = ''
+  let statusDialogOpen = false
+  let syncLog: Array<{ id: string; message: string; at: string }> = []
+  let queuedOperationCount = 0
+  let backingUpServerId = ''
   let peers: PresencePeer[] = []
   let sequence = 1
   let unsubscribePresence: (() => void) | null = null
@@ -196,6 +212,11 @@
         : 'Offline'
   $: tocHeadings = editorRenderMode === 'rich' ? getRichHeadings(richActiveStateVersion) : getMarkdownHeadings(editorText)
   $: isLocalRuntime = services.runtimeMode === 'local'
+  $: activeServerLabel = isLocalRuntime ? 'Local device only' : activeServerUrl || services.serverUrl || 'Remote server'
+  $: if (status && status !== loggedStatus) {
+    loggedStatus = status
+    syncLog = [{ id: `${Date.now()}-${syncLog.length}`, message: status, at: new Date().toLocaleTimeString() }, ...syncLog].slice(0, 24)
+  }
 
   function getSaveIndicatorState(currentStatus: string): SaveIndicatorState {
     if (currentStatus.toLowerCase().includes('offline')) return 'offline'
@@ -207,6 +228,7 @@
   async function start() {
     applyTokens(services.tokens)
     await discardLegacyQueuedDocumentUpdates()
+    await refreshQueuedOperationCount()
     envelope = await bootstrapWorkspace(services)
     if (!isLocalRuntime) await tryFlushAndPull()
     if (notes[0]) selectNote(notes[0])
@@ -234,11 +256,40 @@
     }
     try {
       envelope = await flushQueuedOperations(services)
+      await refreshQueuedOperationCount()
       envelope = await pullChanges(services)
       refreshSelectedEditorFromEnvelope()
       await refreshSelectedDocumentFromServer()
     } catch {
       status = 'Offline, saving locally'
+    }
+  }
+
+  async function refreshQueuedOperationCount() {
+    queuedOperationCount = (await services.syncQueue.list()).length
+  }
+
+  async function backupSelectedNoteToServer(server: (typeof connectedServers)[number]) {
+    if (!selectedNote || !selectedDocument || !server.accessToken) return
+    backingUpServerId = server.id
+    try {
+      await flushPendingEditorSave()
+      const document = envelope?.documents.find((item) => item.id === selectedNote.documentId) ?? selectedDocument
+      const api = createHttpApiClient(server.url, () => server.accessToken ?? '')
+      await api.post('/api/v1/sync/push', {
+        operations: [
+          {
+            kind: 'create_note',
+            note: selectedNote,
+            document,
+          },
+        ],
+      })
+      status = `Backed up to ${server.url}`
+    } catch {
+      status = `Backup failed for ${server.url}`
+    } finally {
+      backingUpServerId = ''
     }
   }
 
@@ -327,6 +378,7 @@
     }
     const document = createDocumentState(documentId, 'note', '')
     await queueOperation(services, { kind: 'create_note', note, document })
+    await refreshQueuedOperationCount()
     envelope = await services.cache.loadEnvelope()
     selectNote(note)
     status = 'Created locally'
@@ -350,6 +402,7 @@
     }
     const document = createDocumentState(documentId, 'note', text)
     await queueOperation(services, { kind: 'create_note', note, document })
+    await refreshQueuedOperationCount()
     envelope = await services.cache.loadEnvelope()
     selectNote(note)
     status = `Uploaded ${file.name}`
@@ -364,6 +417,7 @@
       updatedAt: new Date().toISOString(),
     }
     await queueOperation(services, { kind: 'update_note_metadata', note: updated })
+    await refreshQueuedOperationCount()
     envelope = await services.cache.loadEnvelope()
     status = 'Metadata queued'
   }
@@ -379,6 +433,7 @@
       updatedAt: new Date().toISOString(),
     }
     await queueOperation(services, { kind: 'update_note_metadata', note: updated })
+    await refreshQueuedOperationCount()
     envelope = await services.cache.loadEnvelope()
     if (selectedNoteId === noteId) draftPath = nextPath
     activeFolderPath = nextPath
@@ -429,6 +484,7 @@
     }
 
     envelope = await services.cache.loadEnvelope()
+    await refreshQueuedOperationCount()
     if (activeFolderPath === sourcePath || activeFolderPath.startsWith(`${sourcePath}/`)) {
       activeFolderPath = remapPath(activeFolderPath, sourcePath, movedPath)
     }
@@ -695,6 +751,7 @@
       createdAt: new Date().toISOString(),
     }
     await queueOperation(services, { kind: 'append_document_update', update })
+    await refreshQueuedOperationCount()
     envelope = await services.cache.loadEnvelope()
     lastSavedEditorText = editorText
     const broadcasted = services.documentUpdates.publishUpdate(selectedNote.documentId, update)
@@ -786,7 +843,7 @@
 
   function applyRichDocumentState(documentState: CrdtDocumentState) {
     if (editorRenderMode === 'rich' && richEditor && !richYDoc) {
-      if (richEditor.isFocused) return
+      if (richEditor.isFocused && hasPendingLocalEditorChange(documentState.id)) return
       const nextText = applyUpdates(documentState).text
       editorText = nextText
       lastSavedEditorText = nextText
@@ -904,6 +961,7 @@
       id: selectedNote.id,
       deletedAt: new Date().toISOString(),
     })
+    await refreshQueuedOperationCount()
     envelope = await services.cache.loadEnvelope()
     selectedNoteId = ''
     status = 'Deleted locally'
@@ -937,6 +995,7 @@
 
     const selectedNoteWasDeleted = selectedNote ? selectedFolderNotes.some((note) => note.id === selectedNote.id) : false
     envelope = await services.cache.loadEnvelope()
+    await refreshQueuedOperationCount()
     selectedFolderPath = ''
     activeFolderPath = '/'
     if (selectedNoteWasDeleted) selectedNoteId = ''
@@ -1233,6 +1292,7 @@
         updatedAt: now,
       }
       await queueOperation(services, { kind: 'create_note_folder', folder })
+      await refreshQueuedOperationCount()
       envelope = await services.cache.loadEnvelope()
     }
     activeFolderPath = folderPath
@@ -1531,6 +1591,7 @@
         clientSchemaVersion: 2,
       }
       await queueOperation(services, { kind: 'append_document_update', update: crdtUpdate })
+      await refreshQueuedOperationCount()
       envelope = await services.cache.loadEnvelope()
       const broadcasted = services.documentUpdates.publishUpdate(documentId, crdtUpdate)
       scheduleRemoteFlush()
@@ -1727,9 +1788,23 @@
   <aside class:mobile-open={mobileFilesOpen} class="notes-list" aria-label="Notes">
     <div class="notes-list-panel">
       {#if mode === 'standalone'}
-        <button class="notes-menu-close" aria-label="Close notes menu" title="Close notes menu" on:click={() => mobileFilesOpen = false}>
-          <span aria-hidden="true"></span>
-        </button>
+        <div class="notes-mobile-menu-bar" aria-label="Notes menu controls">
+          <div class="notes-mobile-menu-title">
+            <strong>Files</strong>
+            <span>{activeServerLabel}</span>
+          </div>
+          <div class="notes-mobile-menu-actions">
+            <button class="icon-only-button" aria-label="Settings" title="Settings" on:click={() => settingsOpen = true}>
+              <Icon name="settings" size={18} />
+            </button>
+            <button class="icon-only-button" aria-label="Connected servers" title="Connected servers" on:click={() => onOpenServerManager?.()}>
+              <Icon name="sync" size={18} />
+            </button>
+            <button class="notes-menu-close" aria-label="Close notes menu" title="Close notes menu" on:click={() => mobileFilesOpen = false}>
+              <span aria-hidden="true"></span>
+            </button>
+          </div>
+        </div>
       {/if}
 
       {#if mode === 'suite'}
@@ -1781,7 +1856,7 @@
             <Icon name="new-note" size={18} />
           </button>
           {#if mode === 'standalone'}
-            <button class="icon-label-button" aria-label="Settings" title="Settings" on:click={() => settingsOpen = true}>
+            <button class="desktop-settings-action icon-label-button" aria-label="Settings" title="Settings" on:click={() => settingsOpen = true}>
               <Icon name="settings" size={18} />
             </button>
           {/if}
@@ -1985,14 +2060,15 @@
       <div class="note-title-panel">
         {#if selectedNote}
           <input aria-label="Title" bind:value={draftTitle} on:change={saveMetadata} />
-          <span
+          <button
             class={`save-indicator ${saveIndicatorState}`}
-            role="status"
+            type="button"
             aria-label={saveIndicatorLabel}
             title={saveIndicatorLabel}
+            on:click={() => (statusDialogOpen = true)}
           >
             <Icon name="save" size={16} />
-          </span>
+          </button>
         {:else}
           <div class="empty-note-title">Notes</div>
         {/if}
@@ -2164,5 +2240,76 @@
 
   {#if settingsOpen}
     <AppearanceSettings {tokens} onTokensChange={updateTokens} onClose={() => settingsOpen = false} />
+  {/if}
+
+  {#if statusDialogOpen}
+    <div class="note-status-overlay">
+      <button class="note-status-backdrop" type="button" aria-label="Close note status" on:click={() => (statusDialogOpen = false)}></button>
+      <section class="note-status-dialog" aria-label="Note sync status">
+        <header>
+          <div>
+            <p class="eyebrow">Note status</p>
+            <h2>{selectedNote?.title ?? 'No note selected'}</h2>
+          </div>
+          <button class="notes-menu-close" aria-label="Close note status" title="Close" on:click={() => (statusDialogOpen = false)}>
+            <span aria-hidden="true"></span>
+          </button>
+        </header>
+        <div class="note-status-grid">
+          <div>
+            <span>Storage</span>
+            <strong>{isLocalRuntime ? 'Local only' : 'Server backed'}</strong>
+          </div>
+          <div>
+            <span>Active server</span>
+            <strong>{activeServerLabel}</strong>
+          </div>
+          <div>
+            <span>Queued changes</span>
+            <strong>{queuedOperationCount}</strong>
+          </div>
+          <div>
+            <span>Collaborators</span>
+            <strong>{peers.length}</strong>
+          </div>
+        </div>
+        <div class="note-status-section">
+          <div class="note-status-section-title">
+            <strong>Backup targets</strong>
+            <button type="button" on:click={() => onOpenServerManager?.()}>Manage</button>
+          </div>
+          {#if connectedServers.length === 0}
+            <p>No servers connected. This note is stored on this device until you connect a server.</p>
+          {:else}
+            {#each connectedServers as server}
+              <div class:active={server.active} class="note-status-server-row">
+                <span>{server.url}</span>
+                <div>
+                  <strong>{server.active ? 'Active' : 'Available'}</strong>
+                  <button
+                    type="button"
+                    disabled={!selectedNote || backingUpServerId === server.id}
+                    on:click={() => backupSelectedNoteToServer(server)}
+                  >
+                    {backingUpServerId === server.id ? 'Backing up' : 'Back up'}
+                  </button>
+                </div>
+              </div>
+            {/each}
+          {/if}
+        </div>
+        <div class="note-status-section">
+          <strong>Recent activity</strong>
+          <div class="note-sync-log">
+            {#each syncLog as item}
+              <div>
+                <span>{item.at}</span>
+                <p>{item.message}</p>
+              </div>
+            {/each}
+          </div>
+        </div>
+      </section>
+    </div>
   {/if}
 </main>
