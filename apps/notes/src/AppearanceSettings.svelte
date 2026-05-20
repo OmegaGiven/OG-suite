@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { BackgroundGradient, BackgroundGradientPoint, DesignTokens } from '@og-suite/contracts'
   import Icon from '@og-suite/ui/Icon'
-  import { buildAppearancePatch, createBackgroundGradient, defaultTokens, lightTokens, normalizeTokens } from '@og-suite/ui'
+  import { buildAppearancePatch, createBackgroundGradient, createUiId, defaultTokens, lightTokens, normalizeTokens } from '@og-suite/ui'
 
   export let tokens: DesignTokens
   export let onTokensChange: (tokens: DesignTokens) => void
@@ -70,7 +70,7 @@
   function saveCurrentTheme() {
     const name = themeName.trim() || 'Custom theme'
     const theme: SavedAppearanceTheme = {
-      id: crypto.randomUUID(),
+      id: createUiId('theme'),
       name,
       tokens: normalizeTokens(tokens),
       createdAt: new Date().toISOString(),
@@ -92,7 +92,7 @@
 
   function exportTheme(theme: SavedAppearanceTheme | null) {
     const payload = theme ?? {
-      id: crypto.randomUUID(),
+      id: createUiId('theme'),
       name: themeName.trim() || 'Current appearance',
       tokens: normalizeTokens(tokens),
       createdAt: new Date().toISOString(),
@@ -138,7 +138,7 @@
 
   function addPoint(gradientId: string) {
     const point: BackgroundGradientPoint = {
-      id: crypto.randomUUID(),
+      id: createUiId('point'),
       color: tokens.colorAccent,
       strength: 0.28,
       x: 50,
@@ -217,7 +217,7 @@
     const item = value as Partial<SavedAppearanceTheme> & { tokens?: Partial<DesignTokens> }
     if (!item.tokens || typeof item.tokens !== 'object') return null
     return {
-      id: typeof item.id === 'string' ? item.id : crypto.randomUUID(),
+      id: typeof item.id === 'string' ? item.id : createUiId('theme'),
       name: typeof item.name === 'string' && item.name.trim() ? item.name.trim() : 'Imported theme',
       tokens: normalizeTokens(item.tokens),
       createdAt: typeof item.createdAt === 'string' ? item.createdAt : new Date().toISOString(),

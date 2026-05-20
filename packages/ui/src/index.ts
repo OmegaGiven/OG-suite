@@ -205,6 +205,21 @@ export function applyTokens(tokens: DesignTokens, root: HTMLElement = document.d
   root.setAttribute('style', tokensToCss(tokens))
 }
 
+export function createUiId(prefix = 'id'): string {
+  if (globalThis.crypto && typeof globalThis.crypto.randomUUID === 'function') {
+    return globalThis.crypto.randomUUID()
+  }
+  if (globalThis.crypto && typeof globalThis.crypto.getRandomValues === 'function') {
+    const bytes = new Uint8Array(16)
+    globalThis.crypto.getRandomValues(bytes)
+    bytes[6] = (bytes[6] & 0x0f) | 0x40
+    bytes[8] = (bytes[8] & 0x3f) | 0x80
+    const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('')
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
+  }
+  return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
+}
+
 export function gradientForAppearance(enabled: boolean, background: string, accent: string) {
   if (!enabled) return 'none'
   return [
@@ -215,12 +230,12 @@ export function gradientForAppearance(enabled: boolean, background: string, acce
 
 export function createBackgroundGradient(index: number, accent = defaultTokens.colorAccent): BackgroundGradient {
   return {
-    id: crypto.randomUUID(),
+    id: createUiId('gradient'),
     name: `Gradient ${index + 1}`,
     strength: 0.28,
     points: [
       {
-        id: crypto.randomUUID(),
+        id: createUiId('point'),
         color: accent,
         strength: 0.28,
         x: 50,
@@ -261,12 +276,12 @@ function hexToRgba(hex: string, alpha: number) {
 
 function normalizeGradient(gradient: BackgroundGradient): BackgroundGradient {
   return {
-    id: typeof gradient.id === 'string' ? gradient.id : crypto.randomUUID(),
+    id: typeof gradient.id === 'string' ? gradient.id : createUiId('gradient'),
     name: typeof gradient.name === 'string' ? gradient.name : 'Gradient',
     strength: clampNumber(gradient.strength, 0, 1, 0.28),
     points: Array.isArray(gradient.points)
       ? gradient.points.map((point) => ({
-          id: typeof point.id === 'string' ? point.id : crypto.randomUUID(),
+          id: typeof point.id === 'string' ? point.id : createUiId('point'),
           color: normalizeHex(point.color),
           strength: clampNumber(point.strength, 0, 1, clampNumber(gradient.strength, 0, 1, 0.28)),
           x: clampNumber(point.x, 0, 100, 50),

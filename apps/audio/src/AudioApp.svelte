@@ -8,6 +8,7 @@
     UploadAudioRequest,
     UpdateAudioRecordingRequest,
   } from '@og-suite/contracts'
+  import { createRuntimeId } from '@og-suite/runtime'
   import type { RuntimeServices } from '@og-suite/runtime'
   import ActionBar from '@og-suite/ui/ActionBar'
   import ActionButton from '@og-suite/ui/ActionButton'
@@ -376,6 +377,10 @@
     error = ''
     statusMessage = ''
     chunks = []
+    if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
+      error = 'Microphone recording requires HTTPS or localhost. Use the Android audio app, upload a file, or expose the server through HTTPS.'
+      return
+    }
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true })
       startAudioMeter(stream)
@@ -466,7 +471,7 @@
   async function persistAndSyncRecording() {
     const mimeType = mediaRecorder?.mimeType || 'audio/webm'
     const blob = new Blob(chunks, { type: mimeType })
-    const localId = crypto.randomUUID()
+    const localId = createRuntimeId('audio')
     const draft: LocalAudioDraft = {
       localId,
       title: `Recording ${new Date().toLocaleString()}`,
@@ -496,7 +501,7 @@
     const files = Array.from(input.files ?? [])
     input.value = ''
     for (const file of files) {
-      const localId = crypto.randomUUID()
+      const localId = createRuntimeId('audio')
       const draft: LocalAudioDraft = {
         localId,
         title: file.name.replace(/\.[^.]+$/, '') || `Upload ${new Date().toLocaleString()}`,

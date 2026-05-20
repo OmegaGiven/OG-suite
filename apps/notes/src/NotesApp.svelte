@@ -3,6 +3,7 @@
   import type { DesignTokens } from '@og-suite/contracts'
   import { applyUpdates, createDocumentState, createTextDiffUpdate, decodeYUpdate, encodeYUpdate, hydrateYDoc } from '@og-suite/crdt'
   import type { CrdtDocumentState, CrdtUpdate, Note, NoteFolder, PresencePeer, SyncEnvelope } from '@og-suite/contracts'
+  import { createRuntimeId } from '@og-suite/runtime'
   import type { RuntimeServices } from '@og-suite/runtime'
   import { bootstrapWorkspace, flushQueuedOperations, mergeEnvelope, pullChanges, queueOperation } from '@og-suite/sync'
   import { Editor, Extension } from '@tiptap/core'
@@ -310,8 +311,8 @@
   async function createNote(path = activeFolderPath) {
     const folderPath = normalizeFolderPath(path)
     const now = new Date().toISOString()
-    const noteId = crypto.randomUUID()
-    const documentId = crypto.randomUUID()
+    const noteId = createRuntimeId('note')
+    const documentId = createRuntimeId('document')
     const note: Note = {
       id: noteId,
       documentId,
@@ -332,8 +333,8 @@
 
   async function createNoteFromUpload(file: File, text: string) {
     const now = new Date().toISOString()
-    const noteId = crypto.randomUUID()
-    const documentId = crypto.randomUUID()
+    const noteId = createRuntimeId('note')
+    const documentId = createRuntimeId('document')
     const title = file.name.replace(/\.(md|txt)$/i, '') || 'Uploaded note'
     const note: Note = {
       id: noteId,
@@ -689,7 +690,7 @@
     if (lastSavedEditorText === editorText) return
     const update = {
       ...createTextDiffUpdate(selectedNote.documentId, services.clientId, sequence++, lastSavedEditorText, editorText, selectedDocument),
-      id: crypto.randomUUID(),
+      id: createRuntimeId('update'),
       createdAt: new Date().toISOString(),
     }
     await queueOperation(services, { kind: 'append_document_update', update })
@@ -1214,7 +1215,7 @@
     if (!existingFolder) {
       const now = new Date().toISOString()
       const folder: NoteFolder = {
-        id: crypto.randomUUID(),
+        id: createRuntimeId('folder'),
         path: folderPath,
         name: folderName(folderPath),
         ownerId: 'local-user',
@@ -1519,7 +1520,7 @@
     const mergedUpdate = pendingUpdates.length === 1 ? pendingUpdates[0] : Y.mergeUpdates(pendingUpdates)
     try {
       const crdtUpdate: CrdtUpdate = {
-        id: crypto.randomUUID(),
+        id: createRuntimeId('update'),
         documentId,
         clientId: services.clientId,
         sequence: sequence++,

@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { AudioRecording, CrdtDocumentState, Note } from '@og-suite/contracts'
+  import { createRuntimeId } from '@og-suite/runtime'
   import type { RuntimeServices } from '@og-suite/runtime'
   import ActionBar from '@og-suite/ui/ActionBar'
   import ActionButton from '@og-suite/ui/ActionButton'
@@ -188,7 +189,7 @@
       return
     }
     const folder = {
-      id: crypto.randomUUID(),
+      id: createRuntimeId('folder'),
       path,
       name: folderName(path),
       createdAt: new Date().toISOString(),
@@ -221,7 +222,7 @@
     const now = new Date().toISOString()
     const incoming: DriveFile[] = []
     for (const file of uploadFiles) {
-      const id = crypto.randomUUID()
+      const id = createRuntimeId('file')
       await idbRequest(db.transaction(storeName, 'readwrite').objectStore(storeName).put(file, id))
       incoming.push({
         id,
