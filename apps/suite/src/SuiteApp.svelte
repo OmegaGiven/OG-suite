@@ -195,7 +195,6 @@
           <p class="eyebrow">OG Suite Server</p>
           <h1>{authMode === 'register' ? 'Create profile' : 'Sign in'}</h1>
           {#if authMode === 'login'}
-            <p class="auth-hint">First setup uses admin / password.</p>
           {/if}
         </div>
         <label>
