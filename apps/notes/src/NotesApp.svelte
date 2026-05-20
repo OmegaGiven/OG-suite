@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onDestroy } from 'svelte'
-  import type { DesignTokens } from '@og-suite/contracts'
+  import type { CustomFont, DesignTokens } from '@og-suite/contracts'
   import { applyUpdates, createDocumentState, createTextDiffUpdate } from '@og-suite/crdt'
   import type { CrdtDocumentState, CrdtUpdate, Note, NoteFolder, PresencePeer, SyncEnvelope } from '@og-suite/contracts'
   import { createHttpApiClient, createRuntimeId } from '@og-suite/runtime'
@@ -28,7 +28,7 @@
   import ActionBar from '@og-suite/ui/ActionBar'
   import Icon from '@og-suite/ui/Icon'
   import MobileSuiteTopBar from '@og-suite/ui/MobileSuiteTopBar'
-  import { applyTokens, saveStoredTokens } from '@og-suite/ui'
+  import { builtInFontOptions, customFontsChangedEvent, fontFamilyForCustomFont, loadStoredFonts, applyTokens, saveStoredTokens } from '@og-suite/ui'
   import AppearanceSettings from './AppearanceSettings.svelte'
 
   type EditorRenderMode = 'text' | 'markdown' | 'rich'
@@ -129,10 +129,11 @@
     | null = null
   let collapsedFolderPaths: string[] = []
   let mobileFilesOpen = false
-  let sidebarWidth = 280
+  let sidebarWidth = 380
   let resizingSidebar = false
   let handledOpenTargetKey = ''
   let isLocalRuntime = services.runtimeMode === 'local'
+  let customFonts: CustomFont[] = loadStoredFonts()
   let editorRenderMode: EditorRenderMode = loadEditorRenderMode()
   const selectionProtectionMs = 1800
   const turndown = new TurndownService({ headingStyle: 'atx', codeBlockStyle: 'fenced' })
@@ -218,6 +219,10 @@
     void openSuiteTarget(openTarget, notes.length, envelope.documents.length)
   }
   $: saveIndicatorState = getSaveIndicatorState(status)
+  $: editorFontOptions = [
+    ...builtInFontOptions,
+    ...customFonts.map((font) => ({ label: font.name, value: fontFamilyForCustomFont(font) })),
+  ]
   $: saveIndicatorLabel = saveIndicatorState === 'saved'
     ? 'Saved'
     : saveIndicatorState === 'syncing'
@@ -1412,6 +1417,10 @@
     selectFolder(path)
   }
 
+  function refreshCustomFonts() {
+    customFonts = loadStoredFonts()
+  }
+
   function folderMatchesSearch(folder: NoteFolder) {
     const query = searchQuery.trim().toLowerCase()
     if (!query) return true
@@ -1420,7 +1429,10 @@
 
   start()
 
+  window.addEventListener(customFontsChangedEvent, refreshCustomFonts)
+
   onDestroy(() => {
+    window.removeEventListener(customFontsChangedEvent, refreshCustomFonts)
     unsubscribePresence?.()
     unsubscribeDocumentUpdates?.()
     destroyRichEditor()
@@ -1446,7 +1458,7 @@
 
   function resizeSidebar(event: PointerEvent) {
     if (!resizingSidebar) return
-    sidebarWidth = Math.min(520, Math.max(220, event.clientX))
+    sidebarWidth = Math.min(560, Math.max(260, event.clientX))
   }
 
   function stopSidebarResize(event: PointerEvent) {
@@ -2166,10 +2178,9 @@
         <span class="sr-only">Font</span>
         <select class="plain-select" on:change={(event) => applyFont(event.currentTarget.value)}>
           <option value="">Font</option>
-          <option value="system-ui, sans-serif">System</option>
-          <option value="Georgia, serif">Serif</option>
-          <option value="'IBM Plex Mono', monospace">Mono</option>
-          <option value="'Avenir Next', sans-serif">Avenir</option>
+          {#each editorFontOptions as option}
+            <option value={option.value}>{option.label}</option>
+          {/each}
         </select>
       </label>
     </ActionBar>
@@ -2259,7 +2270,7 @@
   </section>
 
   {#if settingsOpen}
-    <AppearanceSettings {tokens} onTokensChange={updateTokens} onClose={() => settingsOpen = false} />
+    <AppearanceSettings {tokens} {services} onTokensChange={updateTokens} onClose={() => settingsOpen = false} />
   {/if}
 
   {#if statusDialogOpen}

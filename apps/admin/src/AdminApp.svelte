@@ -585,8 +585,16 @@
   .admin-panel {
     display: grid;
     gap: var(--space-md, 12px);
+    width: 100%;
     max-width: 1180px;
     margin: 0 auto;
+    padding: var(--panel-pad, 14px);
+    border: 1px solid var(--border, var(--og-border));
+    border-radius: var(--panel-radius, var(--og-radius));
+    background: var(--panel-surface, var(--og-surface));
+    box-shadow: var(--shadow, var(--og-shadow));
+    backdrop-filter: blur(16px);
+    box-sizing: border-box;
   }
 
   .admin-heading,
@@ -965,6 +973,10 @@
     .admin-app {
       min-height: 100vh;
       padding: var(--page-gutter, 16px);
+    }
+
+    .admin-panel {
+      padding: var(--panel-pad, 14px);
     }
 
     .admin-heading {

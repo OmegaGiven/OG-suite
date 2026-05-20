@@ -183,7 +183,6 @@
       <ol class="timeline">
         {#each activities as activity}
           <li class="timeline-item">
-            <div class="timeline-marker"></div>
             <div class="timeline-body">
               <div class="timeline-topline">
                 <strong>{activity.summary}</strong>
@@ -388,18 +387,10 @@
 
   .timeline-item {
     display: grid;
-    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr) auto;
     align-items: center;
     gap: 10px;
     padding: 9px;
-  }
-
-  .timeline-marker {
-    width: 8px;
-    height: 8px;
-    border-radius: 999px;
-    background: var(--accent, var(--og-accent));
-    box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent-soft, var(--og-accent-soft)) 70%, transparent);
   }
 
   .timeline-body {
@@ -469,8 +460,5 @@
       align-self: start;
     }
 
-    .timeline-marker {
-      display: none;
-    }
   }
 </style>

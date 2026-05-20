@@ -317,7 +317,7 @@
   </section>
 
   {#if settingsOpen}
-    <AppearanceSettings {tokens} onTokensChange={updateTokens} onClose={() => settingsOpen = false} />
+    <AppearanceSettings {tokens} {services} onTokensChange={updateTokens} onClose={() => settingsOpen = false} />
   {/if}
   {/if}
 </main>

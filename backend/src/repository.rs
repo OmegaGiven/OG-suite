@@ -75,6 +75,24 @@ pub trait SuiteRepository: Send + Sync {
         id: Uuid,
         status: &str,
     ) -> AppResult<AudioRecording>;
+    async fn appearance_themes(
+        &self,
+        owner_id: &str,
+        workspace_id: &str,
+    ) -> AppResult<Vec<AppearanceTheme>>;
+    async fn create_appearance_theme(
+        &self,
+        owner_id: &str,
+        workspace_id: &str,
+        request: CreateAppearanceThemeRequest,
+    ) -> AppResult<AppearanceTheme>;
+    async fn update_appearance_theme(
+        &self,
+        id: Uuid,
+        actor_id: &str,
+        request: UpdateAppearanceThemeRequest,
+    ) -> AppResult<AppearanceTheme>;
+    async fn delete_appearance_theme(&self, id: Uuid, actor_id: &str) -> AppResult<()>;
 }
 
 #[derive(Clone, Default)]
@@ -95,6 +113,7 @@ struct RepositoryData {
     audio_folders: HashMap<Uuid, AudioFolder>,
     audio_assets: HashMap<Uuid, String>,
     audio_transcripts: HashMap<Uuid, AudioTranscript>,
+    appearance_themes: HashMap<Uuid, AppearanceTheme>,
 }
 
 #[derive(Default, Deserialize, Serialize)]
@@ -109,6 +128,7 @@ struct RepositorySnapshot {
     audio_folders: Vec<AudioFolder>,
     audio_assets: Vec<(Uuid, String)>,
     audio_transcripts: Vec<AudioTranscript>,
+    appearance_themes: Vec<AppearanceTheme>,
 }
 
 impl InMemoryRepository {
@@ -458,6 +478,34 @@ impl InMemoryRepository {
                 ],
                 transcript_segment_rows,
             ),
+            table(
+                "appearance_themes",
+                "Appearance Themes",
+                data.appearance_themes.len(),
+                &[
+                    "id",
+                    "name",
+                    "owner_id",
+                    "workspace_id",
+                    "is_shared",
+                    "created_at",
+                    "updated_at",
+                ],
+                data.appearance_themes
+                    .values()
+                    .map(|theme| {
+                        serde_json::json!({
+                            "id": theme.id,
+                            "name": theme.name,
+                            "owner_id": theme.owner_id,
+                            "workspace_id": theme.workspace_id,
+                            "is_shared": theme.is_shared,
+                            "created_at": theme.created_at,
+                            "updated_at": theme.updated_at,
+                        })
+                    })
+                    .collect(),
+            ),
         ]
     }
 }
@@ -479,6 +527,7 @@ impl From<&RepositoryData> for RepositorySnapshot {
                 .map(|(recording_id, data_url)| (*recording_id, data_url.clone()))
                 .collect(),
             audio_transcripts: data.audio_transcripts.values().cloned().collect(),
+            appearance_themes: data.appearance_themes.values().cloned().collect(),
         }
     }
 }
@@ -527,6 +576,11 @@ impl From<RepositorySnapshot> for RepositoryData {
                 .audio_transcripts
                 .into_iter()
                 .map(|transcript| (transcript.recording_id, transcript))
+                .collect(),
+            appearance_themes: snapshot
+                .appearance_themes
+                .into_iter()
+                .map(|theme| (theme.id, theme))
                 .collect(),
         }
     }
@@ -1155,6 +1209,98 @@ impl SuiteRepository for InMemoryRepository {
         self.persist_snapshot(&data)?;
         Ok(recording)
     }
+
+    async fn appearance_themes(
+        &self,
+        owner_id: &str,
+        workspace_id: &str,
+    ) -> AppResult<Vec<AppearanceTheme>> {
+        let data = self.inner.read().await;
+        let mut themes = data
+            .appearance_themes
+            .values()
+            .filter(|theme| {
+                theme.workspace_id == workspace_id
+                    && (theme.is_shared || theme.owner_id == owner_id)
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        themes.sort_by(|left, right| right.updated_at.cmp(&left.updated_at));
+        Ok(themes)
+    }
+
+    async fn create_appearance_theme(
+        &self,
+        owner_id: &str,
+        workspace_id: &str,
+        request: CreateAppearanceThemeRequest,
+    ) -> AppResult<AppearanceTheme> {
+        let name = request.name.trim();
+        if name.is_empty() {
+            return Err(AppError::BadRequest("theme name is required".to_string()));
+        }
+        let now = Utc::now();
+        let theme = AppearanceTheme {
+            id: Uuid::new_v4(),
+            name: name.to_string(),
+            tokens: request.tokens,
+            owner_id: owner_id.to_string(),
+            workspace_id: workspace_id.to_string(),
+            is_shared: request.is_shared,
+            created_at: now,
+            updated_at: now,
+        };
+        let mut data = self.inner.write().await;
+        data.appearance_themes.insert(theme.id, theme.clone());
+        self.persist_snapshot(&data)?;
+        Ok(theme)
+    }
+
+    async fn update_appearance_theme(
+        &self,
+        id: Uuid,
+        actor_id: &str,
+        request: UpdateAppearanceThemeRequest,
+    ) -> AppResult<AppearanceTheme> {
+        let mut data = self.inner.write().await;
+        let theme = data
+            .appearance_themes
+            .get_mut(&id)
+            .ok_or(crate::error::AppError::NotFound)?;
+        if theme.owner_id != actor_id {
+            return Err(AppError::Unauthorized);
+        }
+        if let Some(name) = request.name {
+            let trimmed = name.trim();
+            if trimmed.is_empty() {
+                return Err(AppError::BadRequest("theme name is required".to_string()));
+            }
+            theme.name = trimmed.to_string();
+        }
+        if let Some(tokens) = request.tokens {
+            theme.tokens = tokens;
+        }
+        if let Some(is_shared) = request.is_shared {
+            theme.is_shared = is_shared;
+        }
+        theme.updated_at = Utc::now();
+        let theme = theme.clone();
+        self.persist_snapshot(&data)?;
+        Ok(theme)
+    }
+
+    async fn delete_appearance_theme(&self, id: Uuid, actor_id: &str) -> AppResult<()> {
+        let mut data = self.inner.write().await;
+        let Some(theme) = data.appearance_themes.get(&id) else {
+            return Err(crate::error::AppError::NotFound);
+        };
+        if theme.owner_id != actor_id {
+            return Err(AppError::Unauthorized);
+        }
+        data.appearance_themes.remove(&id);
+        self.persist_snapshot(&data)?;
+        Ok(())
+    }
 }
 
 fn compact_if_needed(document: &mut CrdtDocumentState) {
@@ -1357,7 +1503,9 @@ mod tests {
             payload: "server-update".to_string(),
             created_at: Utc::now(),
         };
-        repo.append_document_update(server_update.clone()).await.unwrap();
+        repo.append_document_update(server_update.clone())
+            .await
+            .unwrap();
 
         repo.apply_sync_operation(SyncOperation::CreateNote {
             note,

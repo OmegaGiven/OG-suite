@@ -272,6 +272,35 @@ pub struct SystemVersion {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppearanceTheme {
+    pub id: Uuid,
+    pub name: String,
+    pub tokens: serde_json::Value,
+    pub owner_id: String,
+    pub workspace_id: String,
+    pub is_shared: bool,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateAppearanceThemeRequest {
+    pub name: String,
+    pub tokens: serde_json::Value,
+    pub is_shared: bool,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateAppearanceThemeRequest {
+    pub name: Option<String>,
+    pub tokens: Option<serde_json::Value>,
+    pub is_shared: Option<bool>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FeedActivityAction {
     NoteCreated,

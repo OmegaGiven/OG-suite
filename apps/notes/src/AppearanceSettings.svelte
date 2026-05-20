@@ -1,46 +1,68 @@
 <script lang="ts">
-  import type { BackgroundGradient, BackgroundGradientPoint, DesignTokens } from '@og-suite/contracts'
+  import type { AppearanceTheme, BackgroundGradient, BackgroundGradientPoint, CurrentSession, CustomFont, DesignTokens } from '@og-suite/contracts'
+  import type { RuntimeServices } from '@og-suite/runtime'
   import Icon from '@og-suite/ui/Icon'
-  import { buildAppearancePatch, createBackgroundGradient, createUiId, defaultTokens, lightTokens, normalizeTokens } from '@og-suite/ui'
+  import {
+    builtInFontOptions,
+    buildAppearancePatch,
+    createBackgroundGradient,
+    createUiId,
+    defaultTokens,
+    fontFamilyForCustomFont,
+    lightTokens,
+    loadStoredFonts,
+    normalizeFontFamilyName,
+    normalizeTokens,
+    saveStoredFonts,
+  } from '@og-suite/ui'
+  import { onMount } from 'svelte'
 
   export let tokens: DesignTokens
   export let onTokensChange: (tokens: DesignTokens) => void
   export let onClose: () => void
+  export let services: RuntimeServices | undefined = undefined
 
   type ThemeMode = 'dark' | 'light' | 'custom'
 
-  type SavedAppearanceTheme = {
-    id: string
-    name: string
-    tokens: DesignTokens
-    createdAt: string
-  }
+  type SavedAppearanceTheme = AppearanceTheme
 
   const savedThemeStorageKey = 'og-suite:appearance-themes'
 
-  const fontOptions = [
-    { label: 'Plex Sans', value: '"IBM Plex Sans", "Segoe UI", system-ui, sans-serif' },
-    { label: 'System UI', value: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' },
-    { label: 'Avenir', value: '"Avenir Next", "Helvetica Neue", sans-serif' },
-    { label: 'Serif', value: 'Georgia, "Times New Roman", serif' },
-    { label: 'Mono', value: '"IBM Plex Mono", "SFMono-Regular", monospace' },
-  ]
-
   let backgroundImageInput: HTMLInputElement | null = null
   let themeImportInput: HTMLInputElement | null = null
+  let fontImportInput: HTMLInputElement | null = null
   let activeLocationPicker = ''
   let behaviorSection: HTMLElement | null = null
   let appearanceSection: HTMLElement | null = null
   let selectedThemeMode: ThemeMode = 'custom'
   let themeName = 'Custom theme'
   let savedThemes: SavedAppearanceTheme[] = loadSavedThemes()
+  let shareCurrentTheme = true
   let importStatus = ''
+  let themeStorageStatus = ''
+  let currentUserId = ''
+  let customFonts: CustomFont[] = loadStoredFonts()
+  let fontStatus = ''
   $: gradientPointRows = tokens.backgroundGradients.flatMap((gradient) =>
     gradient.points.map((point) => ({ gradientId: gradient.id, point })),
   )
+  $: serverThemeStorage = Boolean(services && services.runtimeMode !== 'local')
+  $: fontOptions = [
+    ...builtInFontOptions,
+    ...customFonts.map((font) => ({ label: font.name, value: fontFamilyForCustomFont(font) })),
+  ]
+
+  onMount(() => {
+    if (serverThemeStorage) void loadServerThemes()
+  })
+
+  function markThemeDirty() {
+    selectedThemeMode = 'custom'
+    themeName = ''
+  }
 
   function patch(nextPatch: Partial<DesignTokens>) {
-    selectedThemeMode = 'custom'
+    markThemeDirty()
     onTokensChange(buildAppearancePatch(tokens, nextPatch))
   }
 
@@ -53,7 +75,7 @@
   }
 
   function resetAppearance() {
-    applyThemePreset(defaultTokens, 'dark')
+    applyThemePreset(defaultTokens, 'dark', 'Dark theme')
   }
 
   function activeThemeMode(): ThemeMode {
@@ -62,32 +84,113 @@
     return selectedThemeMode === 'light' || selectedThemeMode === 'dark' ? 'custom' : selectedThemeMode
   }
 
-  function applyThemePreset(nextTokens: DesignTokens, mode: ThemeMode) {
+  function applyThemePreset(nextTokens: DesignTokens, mode: ThemeMode, name = mode === 'light' ? 'Light theme' : mode === 'dark' ? 'Dark theme' : 'Custom theme') {
     selectedThemeMode = mode
+    themeName = name
     onTokensChange(normalizeTokens({ ...nextTokens, confirmDelete: tokens.confirmDelete }))
   }
 
-  function saveCurrentTheme() {
+  async function saveCurrentTheme() {
     const name = themeName.trim() || 'Custom theme'
+    const request = {
+      name,
+      tokens: normalizeTokens(tokens),
+      isShared: shareCurrentTheme,
+    }
+    if (serverThemeStorage && services) {
+      try {
+        const theme = await services.api.post<SavedAppearanceTheme>('/api/v1/appearance/themes', request)
+        savedThemes = [theme, ...savedThemes.filter((savedTheme) => savedTheme.id !== theme.id)]
+        themeName = `${name} copy`
+        themeStorageStatus = theme.isShared ? 'Theme saved to server and shared with this workspace.' : 'Theme saved privately to the server.'
+        return
+      } catch (error) {
+        themeStorageStatus = error instanceof Error ? error.message : 'Could not save theme to the server.'
+      }
+    }
+    const now = new Date().toISOString()
     const theme: SavedAppearanceTheme = {
       id: createUiId('theme'),
       name,
-      tokens: normalizeTokens(tokens),
-      createdAt: new Date().toISOString(),
+      tokens: request.tokens,
+      ownerId: 'local',
+      workspaceId: 'local',
+      isShared: false,
+      createdAt: now,
+      updatedAt: now,
     }
     savedThemes = [theme, ...savedThemes]
     saveSavedThemes(savedThemes)
     themeName = `${name} copy`
+    themeStorageStatus = 'Theme saved on this device.'
   }
 
   function applySavedTheme(theme: SavedAppearanceTheme) {
-    applyThemePreset(theme.tokens, 'custom')
+    applyThemePreset(theme.tokens, 'custom', theme.name)
   }
 
-  function removeSavedTheme(themeId: string) {
+  function canManageTheme(theme: SavedAppearanceTheme) {
+    return !serverThemeStorage || !currentUserId || theme.ownerId === currentUserId
+  }
+
+  async function removeSavedTheme(themeId: string) {
     if (!confirmDeleteAction('this saved theme')) return
+    if (serverThemeStorage && services) {
+      try {
+        await services.api.delete(`/api/v1/appearance/themes/${themeId}`)
+        savedThemes = savedThemes.filter((theme) => theme.id !== themeId)
+        themeStorageStatus = 'Theme deleted from the server.'
+        return
+      } catch (error) {
+        themeStorageStatus = error instanceof Error ? error.message : 'Could not delete server theme.'
+        return
+      }
+    }
     savedThemes = savedThemes.filter((theme) => theme.id !== themeId)
     saveSavedThemes(savedThemes)
+  }
+
+  async function renameSavedTheme(theme: SavedAppearanceTheme) {
+    const nextName = window.prompt('Theme name', theme.name)?.trim()
+    if (!nextName || nextName === theme.name) return
+    if (serverThemeStorage && services) {
+      try {
+        const updated = await services.api.patch<SavedAppearanceTheme>(`/api/v1/appearance/themes/${theme.id}`, { name: nextName })
+        savedThemes = savedThemes.map((savedTheme) => savedTheme.id === updated.id ? updated : savedTheme)
+        if (themeName === theme.name) themeName = updated.name
+        themeStorageStatus = 'Theme renamed on the server.'
+        return
+      } catch (error) {
+        themeStorageStatus = error instanceof Error ? error.message : 'Could not rename server theme.'
+        return
+      }
+    }
+    savedThemes = savedThemes.map((savedTheme) => savedTheme.id === theme.id ? { ...savedTheme, name: nextName } : savedTheme)
+    saveSavedThemes(savedThemes)
+    if (themeName === theme.name) themeName = nextName
+  }
+
+  async function toggleThemeShared(theme: SavedAppearanceTheme) {
+    if (!serverThemeStorage || !services) return
+    try {
+      const updated = await services.api.patch<SavedAppearanceTheme>(`/api/v1/appearance/themes/${theme.id}`, { isShared: !theme.isShared })
+      savedThemes = savedThemes.map((savedTheme) => savedTheme.id === updated.id ? updated : savedTheme)
+      themeStorageStatus = updated.isShared ? 'Theme is shared with this workspace.' : 'Theme is private to you.'
+    } catch (error) {
+      themeStorageStatus = error instanceof Error ? error.message : 'Could not update theme sharing.'
+    }
+  }
+
+  async function loadServerThemes() {
+    if (!services) return
+    try {
+      const session = await services.api.get<CurrentSession>('/api/v1/auth/session')
+      currentUserId = session.user.id
+      savedThemes = await services.api.get<SavedAppearanceTheme[]>('/api/v1/appearance/themes')
+      themeStorageStatus = 'Themes loaded from the server.'
+    } catch (error) {
+      themeStorageStatus = error instanceof Error ? error.message : 'Could not load server themes.'
+    }
   }
 
   function exportTheme(theme: SavedAppearanceTheme | null) {
@@ -113,7 +216,11 @@
         const imported = parseThemeImport(reader.result)
         if (imported.length === 0) throw new Error('No themes found')
         savedThemes = [...imported, ...savedThemes]
-        saveSavedThemes(savedThemes)
+        if (serverThemeStorage && services) {
+          void uploadImportedThemes(imported)
+        } else {
+          saveSavedThemes(savedThemes)
+        }
         importStatus = `Imported ${imported.length} theme${imported.length === 1 ? '' : 's'}`
       } catch {
         importStatus = 'Could not import theme file'
@@ -122,6 +229,24 @@
       }
     })
     reader.readAsText(file)
+  }
+
+  async function uploadImportedThemes(themes: SavedAppearanceTheme[]) {
+    if (!services) return
+    try {
+      const created = []
+      for (const theme of themes) {
+        created.push(await services.api.post<SavedAppearanceTheme>('/api/v1/appearance/themes', {
+          name: theme.name,
+          tokens: theme.tokens,
+          isShared: theme.isShared,
+        }))
+      }
+      savedThemes = [...created, ...savedThemes.filter((theme) => !themes.some((imported) => imported.id === theme.id))]
+      themeStorageStatus = `Imported ${created.length} theme${created.length === 1 ? '' : 's'} to the server.`
+    } catch (error) {
+      themeStorageStatus = error instanceof Error ? error.message : 'Could not upload imported themes.'
+    }
   }
 
   function patchGradients(backgroundGradients: BackgroundGradient[]) {
@@ -187,6 +312,54 @@
     reader.readAsDataURL(file)
   }
 
+  function importFont(file: File | undefined) {
+    if (!file) return
+    const name = window.prompt('Font name', fontNameFromFile(file.name))?.trim()
+    const family = normalizeFontFamilyName(name ?? '')
+    if (!family) {
+      if (fontImportInput) fontImportInput.value = ''
+      return
+    }
+    const reader = new FileReader()
+    reader.addEventListener('load', () => {
+      if (typeof reader.result !== 'string') return
+      const font: CustomFont = {
+        id: createUiId('font'),
+        name: family,
+        family,
+        dataUrl: reader.result,
+        format: fontFormat(file.name, file.type),
+        createdAt: new Date().toISOString(),
+      }
+      customFonts = [font, ...customFonts.filter((item) => item.family !== font.family)]
+      saveStoredFonts(customFonts)
+      fontStatus = `Imported ${font.name}.`
+      if (fontImportInput) fontImportInput.value = ''
+    })
+    reader.readAsDataURL(file)
+  }
+
+  function removeCustomFont(font: CustomFont) {
+    if (!confirmDeleteAction(`font "${font.name}"`)) return
+    customFonts = customFonts.filter((item) => item.id !== font.id)
+    saveStoredFonts(customFonts)
+    if (tokens.fontFamily === fontFamilyForCustomFont(font)) patch({ fontFamily: defaultTokens.fontFamily })
+    fontStatus = `Removed ${font.name}.`
+  }
+
+  function fontNameFromFile(filename: string) {
+    return filename.replace(/\.[^.]+$/, '').replace(/[-_]+/g, ' ').trim() || 'Custom Font'
+  }
+
+  function fontFormat(filename: string, mimeType: string) {
+    const lowerName = filename.toLowerCase()
+    if (lowerName.endsWith('.woff2') || mimeType.includes('woff2')) return 'woff2'
+    if (lowerName.endsWith('.woff') || mimeType.includes('woff')) return 'woff'
+    if (lowerName.endsWith('.otf') || mimeType.includes('opentype')) return 'opentype'
+    if (lowerName.endsWith('.ttf') || mimeType.includes('truetype')) return 'truetype'
+    return 'woff2'
+  }
+
   function loadSavedThemes(): SavedAppearanceTheme[] {
     if (typeof localStorage === 'undefined') return []
     const raw = localStorage.getItem(savedThemeStorageKey)
@@ -220,7 +393,11 @@
       id: typeof item.id === 'string' ? item.id : createUiId('theme'),
       name: typeof item.name === 'string' && item.name.trim() ? item.name.trim() : 'Imported theme',
       tokens: normalizeTokens(item.tokens),
+      ownerId: typeof item.ownerId === 'string' ? item.ownerId : 'local',
+      workspaceId: typeof item.workspaceId === 'string' ? item.workspaceId : 'local',
+      isShared: typeof item.isShared === 'boolean' ? item.isShared : false,
       createdAt: typeof item.createdAt === 'string' ? item.createdAt : new Date().toISOString(),
+      updatedAt: typeof item.updatedAt === 'string' ? item.updatedAt : typeof item.createdAt === 'string' ? item.createdAt : new Date().toISOString(),
     }
   }
 
@@ -235,6 +412,32 @@
 
   function slugify(value: string) {
     return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'appearance-theme'
+  }
+
+  function colorPickerValue(value: string, fallback: string) {
+    const trimmed = value.trim()
+    const hex = parseHexColor(trimmed)
+    if (hex) return hex
+    const rgb = parseRgbColor(trimmed)
+    if (rgb) return rgb
+    return parseHexColor(fallback) ?? '#000000'
+  }
+
+  function parseHexColor(value: string) {
+    const clean = value.replace('#', '')
+    const expanded = clean.length === 3 ? clean.split('').map((part) => part + part).join('') : clean
+    return /^[0-9a-fA-F]{6}$/.test(expanded) ? `#${expanded.toLowerCase()}` : null
+  }
+
+  function parseRgbColor(value: string) {
+    const match = value.match(/^rgba?\(([^)]+)\)$/i)
+    if (!match) return null
+    const channels = match[1]
+      .split(',')
+      .slice(0, 3)
+      .map((part) => Number(part.trim()))
+    if (channels.length !== 3 || channels.some((channel) => !Number.isFinite(channel))) return null
+    return `#${channels.map((channel) => Math.max(0, Math.min(255, Math.round(channel))).toString(16).padStart(2, '0')).join('')}`
   }
 </script>
 
@@ -274,14 +477,14 @@
       <button
         class:active={activeThemeMode() === 'light'}
         aria-pressed={activeThemeMode() === 'light'}
-        on:click={() => applyThemePreset(lightTokens, 'light')}
+        on:click={() => applyThemePreset(lightTokens, 'light', 'Light theme')}
       >
         Light
       </button>
       <button
         class:active={activeThemeMode() === 'dark'}
         aria-pressed={activeThemeMode() === 'dark'}
-        on:click={() => applyThemePreset(defaultTokens, 'dark')}
+        on:click={() => applyThemePreset(defaultTokens, 'dark', 'Dark theme')}
       >
         Dark
       </button>
@@ -296,11 +499,17 @@
 
     <label class="settings-field">
       <span>Theme name</span>
-      <input value={themeName} on:input={(event) => themeName = event.currentTarget.value} />
+      <input value={themeName} placeholder="Unsaved custom theme" on:input={(event) => themeName = event.currentTarget.value} />
     </label>
+    {#if serverThemeStorage}
+      <label class="settings-toggle">
+        <input type="checkbox" checked={shareCurrentTheme} on:change={(event) => shareCurrentTheme = event.currentTarget.checked} />
+        <span>Share saved themes with this workspace</span>
+      </label>
+    {/if}
 
     <div class="settings-actions-inline">
-      <button class="icon-label-button" on:click={saveCurrentTheme}>
+      <button class="icon-label-button" on:click={() => void saveCurrentTheme()}>
         <Icon name="save" size={18} />
         <span>Save current</span>
       </button>
@@ -324,6 +533,9 @@
     {#if importStatus}
       <div class="settings-empty">{importStatus}</div>
     {/if}
+    {#if themeStorageStatus}
+      <div class="settings-empty">{themeStorageStatus}</div>
+    {/if}
 
     {#if savedThemes.length > 0}
       <div class="saved-theme-list">
@@ -331,14 +543,24 @@
           <div class="saved-theme-row">
             <button class="saved-theme-apply" on:click={() => applySavedTheme(theme)}>
               <span>{theme.name}</span>
-              <small>{new Date(theme.createdAt).toLocaleDateString()}</small>
+              <small>{serverThemeStorage ? (theme.isShared ? 'Shared' : 'Private') : 'This device'} · {new Date(theme.createdAt).toLocaleDateString()}</small>
             </button>
             <button aria-label={`Export ${theme.name}`} title="Export theme" on:click={() => exportTheme(theme)}>
               <Icon name="download" size={16} />
             </button>
-            <button aria-label={`Delete ${theme.name}`} title="Delete theme" on:click={() => removeSavedTheme(theme.id)}>
-              <Icon name="delete" size={16} />
-            </button>
+            {#if serverThemeStorage && canManageTheme(theme)}
+              <button aria-label={theme.isShared ? `Make ${theme.name} private` : `Share ${theme.name}`} title={theme.isShared ? 'Make private' : 'Share theme'} on:click={() => void toggleThemeShared(theme)}>
+                <Icon name="share" size={16} />
+              </button>
+            {/if}
+            {#if canManageTheme(theme)}
+              <button aria-label={`Rename ${theme.name}`} title="Rename theme" on:click={() => void renameSavedTheme(theme)}>
+                <Icon name="rename" size={16} />
+              </button>
+              <button aria-label={`Delete ${theme.name}`} title="Delete theme" on:click={() => void removeSavedTheme(theme.id)}>
+                <Icon name="delete" size={16} />
+              </button>
+            {/if}
           </div>
         {/each}
       </div>
@@ -384,9 +606,36 @@
       <input value={tokens.colorAccent} on:change={(event) => patch({ colorAccent: event.currentTarget.value })} />
     </label>
     <label class="settings-field color-field">
-      <span>Background</span>
+      <span>App background</span>
       <input type="color" value={tokens.colorBackground} on:input={(event) => patch({ colorBackground: event.currentTarget.value })} />
       <input value={tokens.colorBackground} on:change={(event) => patch({ colorBackground: event.currentTarget.value })} />
+    </label>
+    <label class="settings-field color-field">
+      <span>Panels and cards</span>
+      <input
+        type="color"
+        value={colorPickerValue(tokens.colorSurface, defaultTokens.colorSurface)}
+        on:input={(event) => patch({ colorSurface: event.currentTarget.value })}
+      />
+      <input value={tokens.colorSurface} on:change={(event) => patch({ colorSurface: event.currentTarget.value })} />
+    </label>
+    <label class="settings-field color-field">
+      <span>Secondary surfaces</span>
+      <input
+        type="color"
+        value={colorPickerValue(tokens.colorSurfaceSubtle, defaultTokens.colorSurfaceSubtle)}
+        on:input={(event) => patch({ colorSurfaceSubtle: event.currentTarget.value })}
+      />
+      <input value={tokens.colorSurfaceSubtle} on:change={(event) => patch({ colorSurfaceSubtle: event.currentTarget.value })} />
+    </label>
+    <label class="settings-field color-field">
+      <span>Raised surfaces</span>
+      <input
+        type="color"
+        value={colorPickerValue(tokens.colorSurfaceStrong, defaultTokens.colorSurfaceStrong)}
+        on:input={(event) => patch({ colorSurfaceStrong: event.currentTarget.value })}
+      />
+      <input value={tokens.colorSurfaceStrong} on:change={(event) => patch({ colorSurfaceStrong: event.currentTarget.value })} />
     </label>
     <label class="settings-field color-field">
       <span>Text</span>
@@ -398,19 +647,32 @@
       <input type="color" value={tokens.colorMuted} on:input={(event) => patch({ colorMuted: event.currentTarget.value })} />
       <input value={tokens.colorMuted} on:change={(event) => patch({ colorMuted: event.currentTarget.value })} />
     </label>
-    <label class="settings-field">
-      <span>Panel background base</span>
-      <input value={tokens.colorSurface} on:change={(event) => patch({ colorSurface: event.currentTarget.value })} />
-    </label>
     <label class="settings-field color-field">
       <span>Notes editor background</span>
-      <input type="color" value={tokens.colorToolBackground} on:input={(event) => patch({ colorToolBackground: event.currentTarget.value })} />
+      <input
+        type="color"
+        value={colorPickerValue(tokens.colorToolBackground, defaultTokens.colorToolBackground)}
+        on:input={(event) => patch({ colorToolBackground: event.currentTarget.value })}
+      />
       <input value={tokens.colorToolBackground} on:change={(event) => patch({ colorToolBackground: event.currentTarget.value })} />
     </label>
     <label class="settings-field color-field">
       <span>Action bar background</span>
-      <input type="color" value={tokens.colorActionBarBackground} on:input={(event) => patch({ colorActionBarBackground: event.currentTarget.value })} />
+      <input
+        type="color"
+        value={colorPickerValue(tokens.colorActionBarBackground, defaultTokens.colorActionBarBackground)}
+        on:input={(event) => patch({ colorActionBarBackground: event.currentTarget.value })}
+      />
       <input value={tokens.colorActionBarBackground} on:change={(event) => patch({ colorActionBarBackground: event.currentTarget.value })} />
+    </label>
+    <label class="settings-field color-field">
+      <span>Navigation/menu background</span>
+      <input
+        type="color"
+        value={colorPickerValue(tokens.colorNav, defaultTokens.colorNav)}
+        on:input={(event) => patch({ colorNav: event.currentTarget.value })}
+      />
+      <input value={tokens.colorNav} on:change={(event) => patch({ colorNav: event.currentTarget.value })} />
     </label>
     <label class="settings-field">
       <span>Panel opacity: {Math.round(tokens.panelOpacity * 100)}%</span>
@@ -533,6 +795,37 @@
         {/each}
       </select>
     </label>
+    <div class="settings-actions-inline">
+      <button class="icon-label-button" on:click={() => fontImportInput?.click()}>
+        <Icon name="upload" size={18} />
+        <span>Import font</span>
+      </button>
+      <input
+        bind:this={fontImportInput}
+        class="hidden-file-input"
+        type="file"
+        accept=".woff2,.woff,.ttf,.otf,font/woff2,font/woff,font/ttf,font/otf"
+        on:change={(event) => importFont(event.currentTarget.files?.[0])}
+      />
+    </div>
+    {#if fontStatus}
+      <div class="settings-empty">{fontStatus}</div>
+    {/if}
+    {#if customFonts.length > 0}
+      <div class="custom-font-list">
+        {#each customFonts as font}
+          <div class="custom-font-row">
+            <button class="custom-font-apply" style={`font-family: ${fontFamilyForCustomFont(font)};`} on:click={() => patch({ fontFamily: fontFamilyForCustomFont(font) })}>
+              <span>{font.name}</span>
+              <small>{font.format}</small>
+            </button>
+            <button aria-label={`Delete ${font.name}`} title="Delete font" on:click={() => removeCustomFont(font)}>
+              <Icon name="delete" size={16} />
+            </button>
+          </div>
+        {/each}
+      </div>
+    {/if}
   </section>
 
   <footer class="settings-actions">

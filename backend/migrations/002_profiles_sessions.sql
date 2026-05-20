@@ -34,3 +34,17 @@ create table if not exists trusted_devices (
   last_seen_at timestamptz not null default now(),
   unique (user_id, device_id)
 );
+
+create table if not exists appearance_themes (
+  id uuid primary key,
+  name text not null,
+  tokens jsonb not null,
+  owner_id text not null,
+  workspace_id text not null,
+  is_shared boolean not null default false,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists appearance_themes_workspace_idx on appearance_themes (workspace_id, is_shared);
+create index if not exists appearance_themes_owner_idx on appearance_themes (owner_id);

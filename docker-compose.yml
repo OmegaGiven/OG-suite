@@ -2,7 +2,7 @@ services:
   og-suite:
     build:
       context: .
-    image: og-suite:0.1.10
+    image: og-suite:0.1.11
     container_name: og-suite
     restart: unless-stopped
     environment:

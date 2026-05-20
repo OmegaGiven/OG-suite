@@ -335,6 +335,38 @@ export type DesignTokens = {
   confirmDelete: boolean
 }
 
+export type CustomFont = {
+  id: string
+  name: string
+  family: string
+  dataUrl: string
+  format: string
+  createdAt: IsoDateTime
+}
+
+export type AppearanceTheme = {
+  id: string
+  name: string
+  tokens: DesignTokens
+  ownerId: string
+  workspaceId: string
+  isShared: boolean
+  createdAt: IsoDateTime
+  updatedAt: IsoDateTime
+}
+
+export type CreateAppearanceThemeRequest = {
+  name: string
+  tokens: DesignTokens
+  isShared: boolean
+}
+
+export type UpdateAppearanceThemeRequest = {
+  name?: string
+  tokens?: DesignTokens
+  isShared?: boolean
+}
+
 export type BackgroundGradient = {
   id: string
   name: string

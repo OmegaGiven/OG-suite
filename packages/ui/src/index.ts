@@ -1,6 +1,8 @@
-import type { BackgroundGradient, DesignTokens } from '@og-suite/contracts'
+import type { BackgroundGradient, CustomFont, DesignTokens } from '@og-suite/contracts'
 
 export const appearanceStorageKey = 'og-suite:appearance'
+export const customFontStorageKey = 'og-suite:custom-fonts'
+export const customFontsChangedEvent = 'og-suite:custom-fonts-changed'
 
 export const defaultTokens: DesignTokens = {
   colorBackground: '#09111b',
@@ -84,6 +86,76 @@ export const lightTokens: DesignTokens = {
   density: 'compact',
   fontFamily: '"IBM Plex Sans", "Segoe UI", system-ui, sans-serif',
   confirmDelete: true,
+}
+
+export const builtInFontOptions = [
+  { label: 'Plex Sans', value: '"IBM Plex Sans", "Segoe UI", system-ui, sans-serif' },
+  { label: 'System UI', value: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' },
+  { label: 'Avenir', value: '"Avenir Next", "Helvetica Neue", sans-serif' },
+  { label: 'Serif', value: 'Georgia, "Times New Roman", serif' },
+  { label: 'Mono', value: '"IBM Plex Mono", "SFMono-Regular", monospace' },
+]
+
+export function loadStoredFonts(storageKey = customFontStorageKey): CustomFont[] {
+  if (typeof localStorage === 'undefined') return []
+  const raw = localStorage.getItem(storageKey)
+  if (!raw) return []
+  try {
+    const parsed = JSON.parse(raw) as unknown
+    if (!Array.isArray(parsed)) return []
+    return parsed.map(normalizeCustomFont).filter((font): font is CustomFont => Boolean(font))
+  } catch {
+    return []
+  }
+}
+
+export function saveStoredFonts(fonts: CustomFont[], storageKey = customFontStorageKey) {
+  if (typeof localStorage === 'undefined') return
+  localStorage.setItem(storageKey, JSON.stringify(fonts.map(normalizeCustomFont).filter(Boolean)))
+  applyStoredFonts(fonts)
+  window.dispatchEvent(new CustomEvent(customFontsChangedEvent))
+}
+
+export function fontFamilyForCustomFont(font: Pick<CustomFont, 'family'>) {
+  return `"${font.family.replaceAll('"', '\\"')}", var(--og-font), system-ui, sans-serif`
+}
+
+export function applyStoredFonts(fonts = loadStoredFonts()) {
+  if (typeof document === 'undefined') return
+  const styleId = 'og-suite-custom-fonts'
+  let style = document.getElementById(styleId) as HTMLStyleElement | null
+  if (!style) {
+    style = document.createElement('style')
+    style.id = styleId
+    document.head.appendChild(style)
+  }
+  style.textContent = fonts
+    .map((font) => `@font-face{font-family:"${escapeCssString(font.family)}";src:url("${font.dataUrl}") format("${escapeCssString(font.format)}");font-display:swap;}`)
+    .join('\n')
+}
+
+export function normalizeFontFamilyName(name: string) {
+  return name.trim().replace(/\s+/g, ' ').replace(/["\\]/g, '')
+}
+
+function normalizeCustomFont(value: unknown): CustomFont | null {
+  if (!value || typeof value !== 'object') return null
+  const item = value as Partial<CustomFont>
+  const name = typeof item.name === 'string' ? normalizeFontFamilyName(item.name) : ''
+  const family = typeof item.family === 'string' ? normalizeFontFamilyName(item.family) : name
+  if (!name || !family || typeof item.dataUrl !== 'string' || !item.dataUrl.startsWith('data:')) return null
+  return {
+    id: typeof item.id === 'string' ? item.id : createUiId('font'),
+    name,
+    family,
+    dataUrl: item.dataUrl,
+    format: typeof item.format === 'string' && item.format.trim() ? item.format.trim() : 'woff2',
+    createdAt: typeof item.createdAt === 'string' ? item.createdAt : new Date().toISOString(),
+  }
+}
+
+function escapeCssString(value: string) {
+  return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
 }
 
 export function loadStoredTokens(storageKey = appearanceStorageKey): DesignTokens {
@@ -202,6 +274,7 @@ export function tokensToCss(tokens: DesignTokens): string {
 }
 
 export function applyTokens(tokens: DesignTokens, root: HTMLElement = document.documentElement) {
+  applyStoredFonts()
   root.setAttribute('style', tokensToCss(tokens))
 }
 
