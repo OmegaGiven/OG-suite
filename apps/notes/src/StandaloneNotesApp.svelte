@@ -175,15 +175,7 @@
   </main>
 {:else}
   <div class="standalone-notes-shell">
-    {#if localOnly}
-      <div class="local-mode-banner">
-        <div>
-          <strong>Local notes</strong>
-          <span>Saved on this device. Back up to your server when you are ready.</span>
-        </div>
-        <button type="button" on:click={openBackupDialog}>Back up to server</button>
-      </div>
-    {:else if backupStatus}
+    {#if !localOnly && backupStatus}
       <div class="local-mode-banner synced">
         <div>
           <strong>Server backup active</strong>
@@ -193,7 +185,7 @@
     {/if}
 
     {#key runtimeKey}
-      <NotesApp {services} mode="standalone" />
+      <NotesApp {services} mode="standalone" onBackupToServer={localOnly ? openBackupDialog : undefined} />
     {/key}
   </div>
 

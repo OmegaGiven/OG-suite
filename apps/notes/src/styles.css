@@ -622,6 +622,14 @@ footer {
   font-size: 0.85rem;
 }
 
+.backup-menu-action {
+  width: 100%;
+  margin-top: 12px;
+  justify-content: center;
+  border: 1px solid color-mix(in srgb, var(--accent, var(--og-accent)) 38%, var(--border, var(--og-border)));
+  background: color-mix(in srgb, var(--accent-soft, var(--og-accent-soft)) 72%, transparent);
+}
+
 .editor-shell {
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr) auto;

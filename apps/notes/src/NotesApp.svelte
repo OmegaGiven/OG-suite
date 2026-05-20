@@ -62,6 +62,7 @@
   export let onSuiteAppSelect: ((appId: string) => void) | undefined = undefined
   export let onOpenSuiteSettings: (() => void) | undefined = undefined
   export let openTarget: SuiteOpenTarget | null = null
+  export let onBackupToServer: (() => void) | undefined = undefined
 
   let envelope: SyncEnvelope | null = null
   let selectedNoteId = ''
@@ -784,6 +785,14 @@
   }
 
   function applyRichDocumentState(documentState: CrdtDocumentState) {
+    if (editorRenderMode === 'rich' && richEditor && !richYDoc) {
+      if (richEditor.isFocused) return
+      const nextText = applyUpdates(documentState).text
+      editorText = nextText
+      lastSavedEditorText = nextText
+      richEditor.commands.setContent(renderMarkdown(nextText), { emitUpdate: false })
+      return
+    }
     if (editorRenderMode !== 'rich' || !richYDoc || documentState.id !== richDocumentId) return
     try {
       const incomingDoc = hydrateYDoc(documentState)
@@ -1419,13 +1428,12 @@
     if (richEditor && richDocumentId === selectedNote.documentId) return
     destroyRichEditor()
 
-    const ydoc = hydrateYDoc(selectedDocument)
-    const fragment = ydoc.getXmlFragment('rich-content')
-    richYDoc = ydoc
+    richYDoc = null
     richDocumentId = selectedNote.documentId
 
     richEditor = new Editor({
       element: richEditorElement,
+      content: renderMarkdown(editorText),
       extensions: [
         StarterKit.configure({ undoRedo: false }),
         Underline,
@@ -1447,10 +1455,6 @@
         TableRow,
         TableHeader,
         TableCell,
-        Collaboration.configure({
-          document: ydoc,
-          field: 'rich-content',
-        }),
       ],
       editorProps: {
         attributes: {
@@ -1461,6 +1465,8 @@
       onUpdate: () => {
         richActiveStateVersion += 1
         queueMicrotask(updateRichTableToolsFromSelection)
+        scheduleDocumentSave()
+        status = 'Rich text editing locally'
         services.presence.publishCursor(selectedNote.documentId, richEditor?.state.selection.from ?? null)
       },
       onSelectionUpdate: () => {
@@ -1473,10 +1479,6 @@
       },
     })
 
-    ydoc.on('update', handleLocalRichYUpdate)
-    if (fragment.length === 0 && editorText.trim().length > 0) {
-      richEditor.commands.setContent(renderMarkdown(editorText), { emitUpdate: true })
-    }
   }
 
   function destroyRichEditor() {
@@ -1947,6 +1949,13 @@
 
       {#if notes.length > 0 && filteredNotes.length === 0}
         <div class="empty-tree">No matching notes</div>
+      {/if}
+
+      {#if onBackupToServer}
+        <button class="backup-menu-action icon-label-button" type="button" on:click={onBackupToServer}>
+          <Icon name="upload" size={18} />
+          <span>Back up to server</span>
+        </button>
       {/if}
     </div>
   </aside>
