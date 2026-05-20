@@ -90,10 +90,6 @@
       backdrop-filter: none !important;
     }
 
-    .mobile-suite-menu-right {
-      margin-left: auto;
-    }
-
     .mobile-suite-menu-trigger {
       display: inline-flex;
       align-items: center;
@@ -179,24 +175,12 @@
       display: flex;
       align-items: center;
       gap: 6px;
-    }
-
-    .mobile-suite-menu-tools {
       grid-row: 2;
       align-self: start;
-    }
-
-    .mobile-suite-menu-tools {
       flex-wrap: wrap;
-    }
-
-    .mobile-suite-menu-tools {
       border: 1px solid color-mix(in srgb, var(--border, var(--og-border)) 78%, transparent);
       border-radius: var(--field-radius, var(--og-field-radius));
       background: var(--action-bar-bg, var(--og-action-bar-bg));
-    }
-
-    .mobile-suite-menu-tools {
       padding: 4px;
     }
 

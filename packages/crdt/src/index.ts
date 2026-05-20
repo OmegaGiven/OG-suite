@@ -70,29 +70,11 @@ export function createTextDiffUpdate(
   }
 }
 
-export function compactDocument(state: CrdtDocumentState, compactedAt = new Date().toISOString()): CrdtDocumentState {
-  const doc = hydrateYDoc(state)
-  return {
-    ...state,
-    snapshot: encodeUpdate(Y.encodeStateAsUpdate(doc)),
-    updates: [],
-    compactedAt,
-  }
-}
-
-export function hydrateYDoc(state: CrdtDocumentState): Y.Doc {
+function hydrateYDoc(state: CrdtDocumentState): Y.Doc {
   const doc = createYDoc()
   applyStoredUpdate(doc, state.snapshot)
   for (const update of orderedUpdates(state.updates)) applyStoredUpdate(doc, update.payload)
   return doc
-}
-
-export function encodeYUpdate(update: Uint8Array) {
-  return encodeUpdate(update)
-}
-
-export function decodeYUpdate(payload: string) {
-  return decodeUpdate(payload)
 }
 
 function createYDoc(text = '') {

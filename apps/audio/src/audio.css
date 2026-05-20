@@ -317,7 +317,6 @@ button:disabled {
   grid-area: transcript;
 }
 
-.recording-list,
 .transcript-list {
   display: grid;
   gap: 8px;

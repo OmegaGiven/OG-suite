@@ -4,11 +4,15 @@
   export let align: 'start' | 'center' | 'end' | 'between' = 'start'
   export let wrap: 'wrap' | 'nowrap' = 'wrap'
   export let attached: 'none' | 'top' | 'bottom' = 'none'
+  export let onMouseDown: ((event: MouseEvent) => void) | undefined = undefined
 </script>
 
 <div
   class={`og-action-bar align-${align} ${wrap} attached-${attached} ${className}`}
+  role="toolbar"
+  tabindex="-1"
   aria-label={ariaLabel}
+  on:mousedown={onMouseDown}
 >
   <slot />
 </div>

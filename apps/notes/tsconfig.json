@@ -9,9 +9,8 @@
       "@og-suite/sync": ["../../packages/sync/src/index.ts"],
       "@og-suite/ui": ["../../packages/ui/src/index.ts"],
       "@og-suite/ui/ActionBar": ["../../packages/ui/src/ActionBar.svelte"],
-      "@og-suite/ui/ActionButton": ["../../packages/ui/src/ActionButton.svelte"],
       "@og-suite/ui/Icon": ["../../packages/ui/src/Icon.svelte"],
-      "@og-suite/ui/MobileSuiteMenu": ["../../packages/ui/src/MobileSuiteMenu.svelte"]
+      "@og-suite/ui/MobileSuiteTopBar": ["../../packages/ui/src/MobileSuiteTopBar.svelte"]
     }
   },
   "include": ["src/**/*.ts", "src/**/*.svelte", "vite.config.ts"]

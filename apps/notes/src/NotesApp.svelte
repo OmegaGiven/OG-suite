@@ -1,14 +1,13 @@
 <script lang="ts">
   import { onDestroy } from 'svelte'
   import type { DesignTokens } from '@og-suite/contracts'
-  import { applyUpdates, createDocumentState, createTextDiffUpdate, decodeYUpdate, encodeYUpdate, hydrateYDoc } from '@og-suite/crdt'
+  import { applyUpdates, createDocumentState, createTextDiffUpdate } from '@og-suite/crdt'
   import type { CrdtDocumentState, CrdtUpdate, Note, NoteFolder, PresencePeer, SyncEnvelope } from '@og-suite/contracts'
   import { createHttpApiClient, createRuntimeId } from '@og-suite/runtime'
   import type { RuntimeServices } from '@og-suite/runtime'
   import { bootstrapWorkspace, flushQueuedOperations, mergeEnvelope, pullChanges, queueOperation } from '@og-suite/sync'
   import { Editor, Extension } from '@tiptap/core'
   import StarterKit from '@tiptap/starter-kit'
-  import Collaboration from '@tiptap/extension-collaboration'
   import Underline from '@tiptap/extension-underline'
   import Link from '@tiptap/extension-link'
   import Image from '@tiptap/extension-image'
@@ -26,7 +25,6 @@
   import DOMPurify from 'dompurify'
   import { marked } from 'marked'
   import TurndownService from 'turndown'
-  import * as Y from 'yjs'
   import ActionBar from '@og-suite/ui/ActionBar'
   import Icon from '@og-suite/ui/Icon'
   import MobileSuiteTopBar from '@og-suite/ui/MobileSuiteTopBar'
@@ -89,6 +87,7 @@
   let backingUpServerId = ''
   let lastEditorInteractionAt = 0
   let deferredDocumentRefreshId = ''
+  let lastTextSelection = { start: 0, end: 0 }
   let peers: PresencePeer[] = []
   let sequence = 1
   let unsubscribePresence: (() => void) | null = null
@@ -101,11 +100,7 @@
   let editorElement: HTMLTextAreaElement | null = null
   let richEditorElement: HTMLDivElement | null = null
   let richEditor: Editor | null = null
-  let richYDoc: Y.Doc | null = null
   let richDocumentId = ''
-  let richPendingUpdates: Uint8Array[] = []
-  let richUpdateTimer: ReturnType<typeof setTimeout> | null = null
-  let richFlushInFlight = false
   let richActiveStateVersion = 0
   let uploadInputElement: HTMLInputElement | null = null
   let textColor = '#edf5fb'
@@ -155,6 +150,23 @@
       const checked = input?.checked ? 'x' : ' '
       const text = content.replace(/^\s+|\s+$/g, '').replace(/^\[[ xX]\]\s*/, '')
       return `- [${checked}] ${text || 'Task'}\n`
+    },
+  })
+
+  turndown.addRule('styledInlineElements', {
+    filter: (node) => {
+      if (!(node instanceof HTMLElement)) return false
+      const tag = node.tagName.toLowerCase()
+      return tag === 'span' || tag === 'mark' || tag === 'u'
+    },
+    replacement: (content, node) => {
+      const element = node as HTMLElement
+      const tag = element.tagName.toLowerCase()
+      if (tag === 'u') return `<u>${content}</u>`
+      const style = sanitizeInlineStyle(element.getAttribute('style') ?? '')
+      if (!style && tag === 'span') return content
+      const styleAttribute = style ? ` style="${escapeHtmlAttribute(style)}"` : ''
+      return `<${tag}${styleAttribute}>${content}</${tag}>`
     },
   })
 
@@ -223,8 +235,8 @@
 
   function getSaveIndicatorState(currentStatus: string): SaveIndicatorState {
     if (currentStatus.toLowerCase().includes('offline')) return 'offline'
-    if (flushTimer || richFlushInFlight) return 'syncing'
-    if (saveTimer || richUpdateTimer || richPendingUpdates.length > 0) return 'pending'
+    if (flushTimer) return 'syncing'
+    if (saveTimer) return 'pending'
     return 'saved'
   }
 
@@ -743,7 +755,6 @@
 
   async function saveDocument() {
     if (editorRenderMode === 'rich') {
-      await flushRichPendingUpdates()
       exportRichEditorToMarkdown()
     }
     if (!selectedNote || !selectedDocument) return
@@ -811,9 +822,6 @@
 
   async function applyRemoteDocumentUpdate(update: CrdtUpdate) {
     if (!envelope || update.clientId === services.clientId) return
-    if (editorRenderMode === 'rich' && richYDoc && update.documentId === selectedNote?.documentId) {
-      Y.applyUpdate(richYDoc, decodeYUpdate(update.payload), 'remote')
-    }
     await flushPendingEditorSave()
     envelope = mergeEnvelope(envelope, {
       cursors: envelope.cursors,
@@ -848,7 +856,7 @@
   }
 
   function applyRichDocumentState(documentState: CrdtDocumentState) {
-    if (editorRenderMode === 'rich' && richEditor && !richYDoc) {
+    if (editorRenderMode === 'rich' && richEditor) {
       if (shouldProtectEditorSelection(documentState.id) || (richEditor.isFocused && hasPendingLocalEditorChange(documentState.id))) {
         deferredDocumentRefreshId = documentState.id
         return
@@ -858,14 +866,6 @@
       lastSavedEditorText = nextText
       richEditor.commands.setContent(renderMarkdown(nextText), { emitUpdate: false })
       return
-    }
-    if (editorRenderMode !== 'rich' || !richYDoc || documentState.id !== richDocumentId) return
-    try {
-      const incomingDoc = hydrateYDoc(documentState)
-      const diff = Y.encodeStateAsUpdate(incomingDoc, Y.encodeStateVector(richYDoc))
-      if (diff.length > 0) Y.applyUpdate(richYDoc, diff, 'remote')
-    } catch {
-      // Rich mode only consumes Yjs-backed document updates; legacy plaintext payloads remain in the text source.
     }
   }
 
@@ -1111,10 +1111,27 @@
     listMenuOpen = true
   }
 
+  function handleToolbarMouseDown(event: MouseEvent) {
+    const target = event.target as HTMLElement | null
+    if (!target?.closest('button')) return
+    event.preventDefault()
+  }
+
   function selection() {
-    const start = editorElement?.selectionStart ?? editorText.length
-    const end = editorElement?.selectionEnd ?? editorText.length
+    const textarea = editorElement
+    const hasLiveSelection = Boolean(textarea && document.activeElement === textarea)
+    const start = hasLiveSelection && textarea ? textarea.selectionStart : lastTextSelection.start
+    const end = hasLiveSelection && textarea ? textarea.selectionEnd : lastTextSelection.end
     return { start, end, selected: editorText.slice(start, end) }
+  }
+
+  function captureTextSelection() {
+    if (!editorElement) return
+    lastTextSelection = {
+      start: editorElement.selectionStart,
+      end: editorElement.selectionEnd,
+    }
+    markEditorInteraction()
   }
 
   function undoRedo(command: 'undo' | 'redo') {
@@ -1124,6 +1141,7 @@
 
   function replaceRange(start: number, end: number, replacement: string, nextStart = start, nextEnd = start + replacement.length) {
     editorText = `${editorText.slice(0, start)}${replacement}${editorText.slice(end)}`
+    lastTextSelection = { start: nextStart, end: nextEnd }
     scheduleDocumentSave()
     queueMicrotask(() => {
       editorElement?.focus()
@@ -1405,12 +1423,10 @@
   onDestroy(() => {
     unsubscribePresence?.()
     unsubscribeDocumentUpdates?.()
-    void flushRichPendingUpdates()
     destroyRichEditor()
     if (saveTimer) clearTimeout(saveTimer)
     if (flushTimer) clearTimeout(flushTimer)
     if (pullTimer) clearInterval(pullTimer)
-    if (richUpdateTimer) clearTimeout(richUpdateTimer)
   })
 
   $: applyTokens(tokens)
@@ -1441,7 +1457,6 @@
 
   async function setEditorRenderMode(mode: EditorRenderMode) {
     if (editorRenderMode === 'rich' && mode !== 'rich') {
-      await flushRichPendingUpdates()
       exportRichEditorToMarkdown()
       scheduleDocumentSave()
     }
@@ -1470,6 +1485,25 @@
       USE_PROFILES: { html: true },
       ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto|tel):|[^a-z]|[a-z+.-]+(?:[^a-z+.-:]|$))/i,
     })
+  }
+
+  function sanitizeInlineStyle(style: string) {
+    return style
+      .split(';')
+      .map((part) => part.trim())
+      .filter((part) => {
+        const property = part.split(':', 1)[0]?.trim().toLowerCase()
+        return property === 'color'
+          || property === 'background'
+          || property === 'background-color'
+          || property === 'font-family'
+          || property === 'text-decoration'
+      })
+      .join('; ')
+  }
+
+  function escapeHtmlAttribute(value: string) {
+    return value.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;')
   }
 
   const IndentExtension = Extension.create({
@@ -1524,7 +1558,6 @@
     if (richEditor && richDocumentId === selectedNote.documentId) return
     destroyRichEditor()
 
-    richYDoc = null
     richDocumentId = selectedNote.documentId
 
     richEditor = new Editor({
@@ -1583,69 +1616,11 @@
   }
 
   function destroyRichEditor() {
-    void flushRichPendingUpdates()
-    richYDoc?.off('update', handleLocalRichYUpdate)
     richEditor?.destroy()
     richEditor = null
-    richYDoc = null
     richDocumentId = ''
     tableMenuOpen = false
     richTableMenuStyle = ''
-  }
-
-  function handleLocalRichYUpdate(update: Uint8Array, origin: unknown) {
-    if (origin === 'remote' || !selectedNote) return
-    richPendingUpdates = [...richPendingUpdates, update]
-    if (richPendingUpdates.length >= 20) {
-      void flushRichPendingUpdates()
-      status = 'Rich text shared live'
-      return
-    }
-    if (richUpdateTimer) clearTimeout(richUpdateTimer)
-    richUpdateTimer = setTimeout(() => {
-      richUpdateTimer = null
-      void flushRichPendingUpdates()
-    }, 90)
-    status = 'Rich text editing locally'
-  }
-
-  async function flushRichPendingUpdates() {
-    if (richFlushInFlight) return
-    if (richUpdateTimer) {
-      clearTimeout(richUpdateTimer)
-      richUpdateTimer = null
-    }
-    const pendingUpdates = richPendingUpdates
-    richPendingUpdates = []
-    const documentId = richDocumentId || selectedNote?.documentId
-    if (!documentId || pendingUpdates.length === 0) return
-    richFlushInFlight = true
-    const mergedUpdate = pendingUpdates.length === 1 ? pendingUpdates[0] : Y.mergeUpdates(pendingUpdates)
-    try {
-      const crdtUpdate: CrdtUpdate = {
-        id: createRuntimeId('update'),
-        documentId,
-        clientId: services.clientId,
-        sequence: sequence++,
-        payload: encodeYUpdate(mergedUpdate),
-        createdAt: new Date().toISOString(),
-        clientSchemaVersion: 2,
-      }
-      await queueOperation(services, { kind: 'append_document_update', update: crdtUpdate })
-      await refreshQueuedOperationCount()
-      envelope = await services.cache.loadEnvelope()
-      const broadcasted = services.documentUpdates.publishUpdate(documentId, crdtUpdate)
-      scheduleRemoteFlush()
-      status = isLocalRuntime ? 'Saved locally' : broadcasted ? 'Rich text shared live' : 'Rich text queued for sync'
-    } finally {
-      richFlushInFlight = false
-      if (richPendingUpdates.length > 0 && !richUpdateTimer) {
-        richUpdateTimer = setTimeout(() => {
-          richUpdateTimer = null
-          void flushRichPendingUpdates()
-        }, 90)
-      }
-    }
   }
 
   function exportRichEditorToMarkdown() {
@@ -2124,7 +2099,7 @@
       </div>
     </div>
 
-    <ActionBar ariaLabel="Editor toolbar" attached="top" wrap="wrap" className="toolbar">
+    <ActionBar ariaLabel="Editor toolbar" attached="top" wrap="wrap" className="toolbar" onMouseDown={handleToolbarMouseDown}>
       <button
         class:active-action={tocOpen}
         aria-label="Table of contents"
@@ -2221,7 +2196,7 @@
       </div>
     {/if}
     {#if listMenuOpen}
-      <div class="list-style-menu" role="menu" aria-label="List style" style={listMenuStyle}>
+      <div class="list-style-menu" role="menu" tabindex="-1" aria-label="List style" style={listMenuStyle} on:mousedown={(event) => event.preventDefault()}>
         <button role="menuitem" on:click={() => runCommand('list-dash')}><span>•</span><strong>Dash list</strong></button>
         <button role="menuitem" on:click={() => runCommand('list-star')}><span>★</span><strong>Star list</strong></button>
         <button role="menuitem" on:click={() => runCommand('list-checkbox')}><span>☐</span><strong>Checkbox list</strong></button>
@@ -2259,10 +2234,10 @@
             bind:value={editorText}
             aria-label={editorRenderMode === 'markdown' ? 'Markdown source' : 'Note text'}
             on:input={handleEditorInput}
-            on:select={markEditorInteraction}
-            on:keyup={markEditorInteraction}
+            on:select={captureTextSelection}
+            on:keyup={captureTextSelection}
             on:pointerdown={markEditorInteraction}
-            on:pointerup={markEditorInteraction}
+            on:pointerup={captureTextSelection}
             on:blur={() => void handleEditorBlur()}
             spellcheck="true"
           ></textarea>

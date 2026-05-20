@@ -194,8 +194,6 @@
         <div>
           <p class="eyebrow">OG Suite Server</p>
           <h1>{authMode === 'register' ? 'Create profile' : 'Sign in'}</h1>
-          {#if authMode === 'login'}
-          {/if}
         </div>
         <label>
           <span>Username</span>
