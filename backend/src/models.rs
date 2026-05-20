@@ -34,6 +34,244 @@ pub struct AppRegistryEntry {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UserProfile {
+    pub id: String,
+    pub display_name: String,
+    pub username: Option<String>,
+    pub roles: Vec<String>,
+    pub must_change_password: bool,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceProfile {
+    pub id: String,
+    pub name: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AuthSession {
+    pub user: UserProfile,
+    pub workspace: WorkspaceProfile,
+    pub access_token: String,
+    pub refresh_token: String,
+    pub expires_at: DateTime<Utc>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CurrentSession {
+    pub user: UserProfile,
+    pub workspace: WorkspaceProfile,
+    pub expires_at: DateTime<Utc>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RegisterProfileRequest {
+    pub username: String,
+    pub display_name: String,
+    pub password: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LoginRequest {
+    pub username: String,
+    pub password: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RefreshSessionRequest {
+    pub refresh_token: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CompleteSetupRequest {
+    pub username: String,
+    pub display_name: String,
+    pub password: String,
+    pub confirm_password: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppToolScope {
+    pub feed: bool,
+    pub notes: bool,
+    pub files: bool,
+    pub audio: bool,
+    pub admin: bool,
+}
+
+impl AppToolScope {
+    pub fn admin() -> Self {
+        Self {
+            feed: true,
+            notes: true,
+            files: true,
+            audio: true,
+            admin: true,
+        }
+    }
+
+    pub fn member() -> Self {
+        Self {
+            feed: true,
+            notes: true,
+            files: true,
+            audio: true,
+            admin: false,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AdminRolePolicy {
+    pub name: String,
+    pub app_scopes: AppToolScope,
+    pub admin_panel: bool,
+    pub manage_users: bool,
+    pub manage_storage: bool,
+    pub manage_auth: bool,
+    pub manage_deployment: bool,
+    pub manage_database: bool,
+    pub view_audits: bool,
+}
+
+pub type CreateAdminRoleRequest = AdminRolePolicy;
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AdminUserSummary {
+    pub id: String,
+    pub username: String,
+    pub display_name: String,
+    pub roles: Vec<String>,
+    pub must_change_password: bool,
+    pub storage_used_bytes: u64,
+    pub storage_limit_mb: u64,
+    pub app_scopes: AppToolScope,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateAdminUserRequest {
+    pub username: String,
+    pub display_name: String,
+    pub password: String,
+    pub roles: Vec<String>,
+    pub storage_limit_mb: u64,
+    pub app_scopes: AppToolScope,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateAdminUserAccessRequest {
+    pub roles: Vec<String>,
+    pub storage_limit_mb: u64,
+    pub app_scopes: AppToolScope,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResetAdminUserPasswordRequest {
+    pub password: String,
+    pub confirm_password: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AdminStorageOverview {
+    pub total_used_bytes: u64,
+    pub total_limit_mb: u64,
+    pub user_count: usize,
+    pub notes_bytes: u64,
+    pub audio_bytes: u64,
+    pub files_bytes: u64,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AdminDatabaseTable {
+    pub key: String,
+    pub label: String,
+    pub row_count: usize,
+    pub columns: Vec<String>,
+    pub rows: Vec<serde_json::Value>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AdminDatabaseOverview {
+    pub backend: String,
+    pub generated_at: DateTime<Utc>,
+    pub tables: Vec<AdminDatabaseTable>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AdminAuditEntry {
+    pub id: String,
+    pub occurred_at: DateTime<Utc>,
+    pub actor_id: String,
+    pub actor_label: String,
+    pub action: String,
+    pub target_kind: String,
+    pub target_label: String,
+    pub details: Option<serde_json::Value>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AdminAuthSettings {
+    pub default_admin_enabled: bool,
+    pub local_password_enabled: bool,
+    pub require_setup_password_change: bool,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AdminDeploymentSettings {
+    pub server_version: String,
+    pub build_date: String,
+    pub api_compatibility_version: String,
+    pub release_channel: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AdminSummary {
+    pub generated_at: DateTime<Utc>,
+    pub users: Vec<AdminUserSummary>,
+    pub role_policies: Vec<AdminRolePolicy>,
+    pub storage: AdminStorageOverview,
+    pub authentication: AdminAuthSettings,
+    pub deployment: AdminDeploymentSettings,
+    pub database: AdminDatabaseOverview,
+    pub audits: Vec<AdminAuditEntry>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SystemVersion {
+    pub backend_version: String,
+    pub api_compatibility_version: String,
+    pub minimum_client_version: String,
+    pub build_date: String,
+    pub capabilities: Vec<String>,
+    pub auth_required: bool,
+    pub auth_modes: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FeedActivityAction {
     NoteCreated,

@@ -83,11 +83,15 @@ export function registerApp(manifest: AppManifest): RegisteredApp {
   }
 }
 
-export function createHttpApiClient(baseUrl: string): ApiClient {
+export function createHttpApiClient(baseUrl: string, getAccessToken?: () => string | null): ApiClient {
   async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+    const accessToken = getAccessToken?.()
     const response = await fetch(`${baseUrl}${path}`, {
       method,
-      headers: body === undefined ? undefined : { 'content-type': 'application/json' },
+      headers: {
+        ...(body === undefined ? {} : { 'content-type': 'application/json' }),
+        ...(accessToken ? { authorization: `Bearer ${accessToken}` } : {}),
+      },
       body: body === undefined ? undefined : JSON.stringify(body),
     })
     if (!response.ok) {

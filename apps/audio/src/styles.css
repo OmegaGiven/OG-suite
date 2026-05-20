@@ -10,3 +10,58 @@ body {
   color: var(--text, var(--og-text, #221d18));
   font-family: var(--app-font-family, var(--og-font, Inter, system-ui, sans-serif));
 }
+
+.standalone-auth-screen {
+  display: grid;
+  place-items: center;
+  min-height: 100vh;
+  padding: var(--page-gutter, 16px);
+}
+
+.standalone-auth-card {
+  display: grid;
+  gap: 12px;
+  width: min(420px, 100%);
+  padding: 18px;
+  border: 1px solid var(--border, var(--og-border));
+  border-radius: var(--panel-radius, var(--og-radius));
+  background: var(--panel-surface, var(--og-surface));
+  box-shadow: var(--shadow, var(--og-shadow));
+}
+
+.standalone-auth-card h1,
+.standalone-auth-card p {
+  margin: 0;
+}
+
+.standalone-auth-card label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted, var(--og-muted));
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.standalone-auth-card input {
+  min-height: 38px;
+  border: 1px solid var(--border, var(--og-border));
+  border-radius: var(--field-radius, var(--og-field-radius));
+  background: var(--surface-subtle, var(--og-surface-subtle));
+  color: var(--text, var(--og-text));
+  padding: 8px 10px;
+}
+
+.standalone-auth-card button {
+  min-height: 38px;
+  border: 1px solid var(--border, var(--og-border));
+  border-radius: var(--field-radius, var(--og-field-radius));
+  background: var(--accent, var(--og-accent));
+  color: var(--accent-contrast, var(--og-accent-contrast));
+  cursor: pointer;
+  font-weight: 900;
+}
+
+.standalone-auth-error {
+  color: #dc2626;
+  font-size: 13px;
+}

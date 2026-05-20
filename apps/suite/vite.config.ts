@@ -3,6 +3,8 @@ import { fileURLToPath, URL } from 'node:url'
 import { defineConfig } from 'vite'
 
 const alias = [
+  { find: '@og-suite/admin/manifest', replacement: fileURLToPath(new URL('../admin/src/manifest.ts', import.meta.url)) },
+  { find: '@og-suite/admin', replacement: fileURLToPath(new URL('../admin/src/AdminApp.svelte', import.meta.url)) },
   { find: '@og-suite/audio/manifest', replacement: fileURLToPath(new URL('../audio/src/manifest.ts', import.meta.url)) },
   { find: '@og-suite/audio', replacement: fileURLToPath(new URL('../audio/src/AudioApp.svelte', import.meta.url)) },
   { find: '@og-suite/notes/manifest', replacement: fileURLToPath(new URL('../notes/src/manifest.ts', import.meta.url)) },

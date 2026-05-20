@@ -117,7 +117,9 @@ impl LocalTranscriptionEngine {
             }
         };
 
-        let transcription_input = self.prepare_transcription_input(recording_id, &input_path).await;
+        let transcription_input = self
+            .prepare_transcription_input(recording_id, &input_path)
+            .await;
         let command_input = transcription_input.as_ref().unwrap_or(&input_path);
 
         let output = match self.run_command(command_input).await {

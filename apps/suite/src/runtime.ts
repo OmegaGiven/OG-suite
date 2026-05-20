@@ -16,7 +16,7 @@ export function createSuiteRuntime(): RuntimeServices {
   const clientId = localStorage.getItem('og-suite:client-id') ?? crypto.randomUUID()
   localStorage.setItem('og-suite:client-id', clientId)
   return {
-    api: createHttpApiClient(baseUrl),
+    api: createHttpApiClient(baseUrl, () => localStorage.getItem('og-suite:auth:access-token')),
     cache: createBrowserLocalCache('og-suite:suite:workspace'),
     syncQueue: createBrowserSyncQueue('og-suite:suite:sync-queue'),
     presence: createWebSocketPresence(baseUrl, clientId),

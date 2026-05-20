@@ -1,13 +1,13 @@
 use crate::{error::AppResult, models::*, repository::SuiteRepository, state::AppState};
 use axum::{
-    body::Body,
     Json, Router,
+    body::Body,
     extract::{
         Path, Query, State,
         ws::{Message, WebSocket, WebSocketUpgrade},
     },
     http::{
-        StatusCode,
+        HeaderMap, StatusCode,
         header::{CONTENT_DISPOSITION, CONTENT_TYPE},
     },
     response::{IntoResponse, Response},
@@ -22,6 +22,24 @@ use uuid::Uuid;
 pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/health", get(health))
+        .route("/api/v1/system/version", get(system_version))
+        .route("/api/v1/auth/register", post(register_profile))
+        .route("/api/v1/auth/login", post(login))
+        .route("/api/v1/auth/refresh", post(refresh_session))
+        .route("/api/v1/auth/session", get(current_session))
+        .route("/api/v1/auth/complete-setup", post(complete_setup))
+        .route("/api/v1/auth/logout", post(logout))
+        .route("/api/v1/admin/summary", get(admin_summary))
+        .route("/api/v1/admin/roles", post(create_admin_role))
+        .route("/api/v1/admin/users", post(create_admin_user))
+        .route(
+            "/api/v1/admin/users/{id}/access",
+            patch(update_admin_user_access),
+        )
+        .route(
+            "/api/v1/admin/users/{id}/reset-password",
+            post(reset_admin_user_password),
+        )
         .route("/api/v1/apps", get(list_apps))
         .route("/api/v1/sync/bootstrap", get(sync_bootstrap))
         .route("/api/v1/sync/pull", post(sync_pull))
@@ -84,8 +102,132 @@ async fn health() -> Json<HealthResponse> {
     })
 }
 
+async fn system_version() -> Json<SystemVersion> {
+    Json(SystemVersion {
+        backend_version: env!("CARGO_PKG_VERSION").to_string(),
+        api_compatibility_version: "1".to_string(),
+        minimum_client_version: "0.1.0".to_string(),
+        build_date: option_env!("OG_SUITE_BUILD_DATE")
+            .unwrap_or("development")
+            .to_string(),
+        capabilities: vec![
+            "profiles".to_string(),
+            "local-auth".to_string(),
+            "default-admin-setup".to_string(),
+            "admin-dashboard".to_string(),
+            "sync".to_string(),
+            "audio".to_string(),
+            "files".to_string(),
+        ],
+        auth_required: true,
+        auth_modes: vec!["local-password".to_string()],
+    })
+}
+
 async fn list_apps(State(state): State<AppState>) -> AppResult<Json<Vec<AppRegistryEntry>>> {
     Ok(Json(state.repo.apps().await?))
+}
+
+async fn register_profile(
+    State(state): State<AppState>,
+    Json(payload): Json<RegisterProfileRequest>,
+) -> AppResult<Json<AuthSession>> {
+    Ok(Json(state.register_profile(payload).await?))
+}
+
+async fn login(
+    State(state): State<AppState>,
+    Json(payload): Json<LoginRequest>,
+) -> AppResult<Json<AuthSession>> {
+    Ok(Json(state.login(payload).await?))
+}
+
+async fn refresh_session(
+    State(state): State<AppState>,
+    Json(payload): Json<RefreshSessionRequest>,
+) -> AppResult<Json<AuthSession>> {
+    Ok(Json(state.refresh_session(payload).await?))
+}
+
+async fn current_session(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> AppResult<Json<CurrentSession>> {
+    Ok(Json(state.current_session(&bearer_token(&headers)?).await?))
+}
+
+async fn complete_setup(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(payload): Json<CompleteSetupRequest>,
+) -> AppResult<Json<CurrentSession>> {
+    Ok(Json(
+        state
+            .complete_setup(&bearer_token(&headers)?, payload)
+            .await?,
+    ))
+}
+
+async fn logout(State(state): State<AppState>, headers: HeaderMap) -> AppResult<StatusCode> {
+    state.logout(&bearer_token(&headers)?).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn admin_summary(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> AppResult<Json<AdminSummary>> {
+    Ok(Json(state.admin_summary(&bearer_token(&headers)?).await?))
+}
+
+async fn create_admin_user(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(payload): Json<CreateAdminUserRequest>,
+) -> AppResult<Json<AdminUserSummary>> {
+    Ok(Json(
+        state
+            .create_admin_user(&bearer_token(&headers)?, payload)
+            .await?,
+    ))
+}
+
+async fn create_admin_role(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(payload): Json<CreateAdminRoleRequest>,
+) -> AppResult<Json<AdminRolePolicy>> {
+    Ok(Json(
+        state
+            .create_admin_role(&bearer_token(&headers)?, payload)
+            .await?,
+    ))
+}
+
+async fn update_admin_user_access(
+    Path(id): Path<String>,
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(payload): Json<UpdateAdminUserAccessRequest>,
+) -> AppResult<Json<AdminUserSummary>> {
+    Ok(Json(
+        state
+            .update_admin_user_access(&bearer_token(&headers)?, &id, payload)
+            .await?,
+    ))
+}
+
+async fn reset_admin_user_password(
+    Path(id): Path<String>,
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(payload): Json<ResetAdminUserPasswordRequest>,
+) -> AppResult<Json<AdminUserSummary>> {
+    Ok(Json(
+        state
+            .reset_admin_user_password(&bearer_token(&headers)?, &id, payload)
+            .await?,
+    ))
 }
 
 async fn sync_bootstrap(State(state): State<AppState>) -> AppResult<Json<SyncEnvelope>> {
@@ -348,7 +490,10 @@ async fn upload_audio(
     Ok(Json(recording))
 }
 
-async fn get_audio_asset(Path(id): Path<Uuid>, State(state): State<AppState>) -> AppResult<Response> {
+async fn get_audio_asset(
+    Path(id): Path<Uuid>,
+    State(state): State<AppState>,
+) -> AppResult<Response> {
     let data_url = state.repo.audio_asset(id).await?;
     let (mime_type, bytes) = decode_data_url(&data_url)?;
     Ok(([(CONTENT_TYPE, mime_type)], Body::from(bytes)).into_response())
@@ -398,7 +543,10 @@ async fn download_audio_transcript_srt(
     let filename = caption_filename(&recording.title, "srt");
     Ok((
         [
-            (CONTENT_TYPE, "application/x-subrip; charset=utf-8".to_string()),
+            (
+                CONTENT_TYPE,
+                "application/x-subrip; charset=utf-8".to_string(),
+            ),
             (
                 CONTENT_DISPOSITION,
                 format!("attachment; filename=\"{filename}\""),
@@ -729,7 +877,9 @@ fn short_id(id: Uuid) -> String {
 fn decode_data_url(data_url: &str) -> AppResult<(String, Vec<u8>)> {
     use base64::{Engine as _, engine::general_purpose::STANDARD};
     let Some((metadata, encoded)) = data_url.split_once(',') else {
-        return Err(crate::error::AppError::Database("invalid audio data URL".to_string()));
+        return Err(crate::error::AppError::Database(
+            "invalid audio data URL".to_string(),
+        ));
     };
     let mime_type = metadata
         .strip_prefix("data:")
@@ -808,7 +958,22 @@ fn caption_filename(title: &str, extension: &str) -> String {
         .collect::<String>()
         .trim_matches('-')
         .to_string();
-    format!("{}.{}", if stem.is_empty() { "transcript" } else { &stem }, extension)
+    format!(
+        "{}.{}",
+        if stem.is_empty() { "transcript" } else { &stem },
+        extension
+    )
+}
+
+fn bearer_token(headers: &HeaderMap) -> AppResult<String> {
+    let value = headers
+        .get("authorization")
+        .and_then(|header| header.to_str().ok())
+        .ok_or(crate::error::AppError::Unauthorized)?;
+    let Some(token) = value.strip_prefix("Bearer ") else {
+        return Err(crate::error::AppError::Unauthorized);
+    };
+    Ok(token.to_string())
 }
 
 #[cfg(test)]
@@ -835,6 +1000,361 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn auth_register_session_and_logout_work() {
+        let app = router(AppState::new());
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/register")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&RegisterProfileRequest {
+                            username: "nathan".to_string(),
+                            display_name: "Nathan".to_string(),
+                            password: "password123".to_string(),
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let session: AuthSession = serde_json::from_slice(&body).unwrap();
+        assert_eq!(session.user.display_name, "Nathan");
+        assert!(!session.access_token.is_empty());
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/auth/session")
+                    .header("authorization", format!("Bearer {}", session.access_token))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let current: CurrentSession = serde_json::from_slice(&body).unwrap();
+        assert_eq!(current.user.id, session.user.id);
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/logout")
+                    .header("authorization", format!("Bearer {}", session.access_token))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/auth/session")
+                    .header("authorization", format!("Bearer {}", session.access_token))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn default_admin_must_complete_setup() {
+        let app = router(AppState::new());
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/login")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&LoginRequest {
+                            username: "admin".to_string(),
+                            password: "password".to_string(),
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let session: AuthSession = serde_json::from_slice(&body).unwrap();
+        assert!(session.user.must_change_password);
+        assert!(session.user.roles.contains(&"admin".to_string()));
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/complete-setup")
+                    .header("authorization", format!("Bearer {}", session.access_token))
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&CompleteSetupRequest {
+                            username: "nathan-admin".to_string(),
+                            display_name: "Nathan Admin".to_string(),
+                            password: "better-password".to_string(),
+                            confirm_password: "better-password".to_string(),
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let current: CurrentSession = serde_json::from_slice(&body).unwrap();
+        assert_eq!(current.user.username.as_deref(), Some("nathan-admin"));
+        assert!(!current.user.must_change_password);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/login")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&LoginRequest {
+                            username: "admin".to_string(),
+                            password: "password".to_string(),
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn admin_summary_requires_admin_role() {
+        let app = router(AppState::new());
+        let admin_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/login")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&LoginRequest {
+                            username: "admin".to_string(),
+                            password: "password".to_string(),
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let body = admin_response
+            .into_body()
+            .collect()
+            .await
+            .unwrap()
+            .to_bytes();
+        let admin_session: AuthSession = serde_json::from_slice(&body).unwrap();
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/admin/summary")
+                    .header(
+                        "authorization",
+                        format!("Bearer {}", admin_session.access_token),
+                    )
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let summary: AdminSummary = serde_json::from_slice(&body).unwrap();
+        assert_eq!(summary.users.len(), 1);
+        assert!(
+            summary
+                .role_policies
+                .iter()
+                .any(|role| role.name == "admin")
+        );
+
+        let create_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/admin/users")
+                    .header(
+                        "authorization",
+                        format!("Bearer {}", admin_session.access_token),
+                    )
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&CreateAdminUserRequest {
+                            username: "managed".to_string(),
+                            display_name: "Managed User".to_string(),
+                            password: "password123".to_string(),
+                            roles: vec!["owner".to_string()],
+                            storage_limit_mb: 512,
+                            app_scopes: AppToolScope::member(),
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(create_response.status(), StatusCode::OK);
+        let body = create_response
+            .into_body()
+            .collect()
+            .await
+            .unwrap()
+            .to_bytes();
+        let managed: AdminUserSummary = serde_json::from_slice(&body).unwrap();
+        assert_eq!(managed.storage_limit_mb, 512);
+
+        let update_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("PATCH")
+                    .uri(format!("/api/v1/admin/users/{}/access", managed.id))
+                    .header(
+                        "authorization",
+                        format!("Bearer {}", admin_session.access_token),
+                    )
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&UpdateAdminUserAccessRequest {
+                            roles: vec!["admin".to_string(), "owner".to_string()],
+                            storage_limit_mb: 1024,
+                            app_scopes: AppToolScope::admin(),
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(update_response.status(), StatusCode::OK);
+        let body = update_response
+            .into_body()
+            .collect()
+            .await
+            .unwrap()
+            .to_bytes();
+        let updated: AdminUserSummary = serde_json::from_slice(&body).unwrap();
+        assert!(updated.roles.contains(&"admin".to_string()));
+        assert_eq!(updated.storage_limit_mb, 1024);
+
+        let reset_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/api/v1/admin/users/{}/reset-password", managed.id))
+                    .header(
+                        "authorization",
+                        format!("Bearer {}", admin_session.access_token),
+                    )
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&ResetAdminUserPasswordRequest {
+                            password: "new-password".to_string(),
+                            confirm_password: "new-password".to_string(),
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(reset_response.status(), StatusCode::OK);
+
+        let user_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/register")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&RegisterProfileRequest {
+                            username: "member".to_string(),
+                            display_name: "Member".to_string(),
+                            password: "password123".to_string(),
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let body = user_response
+            .into_body()
+            .collect()
+            .await
+            .unwrap()
+            .to_bytes();
+        let member_session: AuthSession = serde_json::from_slice(&body).unwrap();
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/admin/summary")
+                    .header(
+                        "authorization",
+                        format!("Bearer {}", member_session.access_token),
+                    )
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn system_version_reports_auth_capabilities() {
+        let app = router(AppState::new());
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/system/version")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let payload: SystemVersion = serde_json::from_slice(&body).unwrap();
+        assert_eq!(payload.backend_version, env!("CARGO_PKG_VERSION"));
+        assert!(payload.auth_required);
+        assert!(payload.auth_modes.contains(&"local-password".to_string()));
     }
 
     #[tokio::test]
@@ -1013,5 +1533,13 @@ mod tests {
         assert!(schema.contains("create table if not exists feed_favorites"));
         assert!(schema.contains("create table if not exists audio_recordings"));
         assert!(schema.contains("create table if not exists audio_transcript_segments"));
+        assert!(
+            crate::db::profile_session_schema()
+                .contains("create table if not exists auth_sessions")
+        );
+        assert!(
+            crate::db::profile_session_schema()
+                .contains("create table if not exists trusted_devices")
+        );
     }
 }

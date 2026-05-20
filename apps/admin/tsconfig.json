@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["svelte", "vite/client"],
+    "paths": {
+      "@og-suite/contracts": ["../../packages/contracts/src/index.ts"],
+      "@og-suite/runtime": ["../../packages/runtime/src/index.ts"],
+      "@og-suite/ui": ["../../packages/ui/src/index.ts"],
+      "@og-suite/ui/MobileSuiteMenu": ["../../packages/ui/src/MobileSuiteMenu.svelte"],
+      "@og-suite/ui/MobileSuiteTopBar": ["../../packages/ui/src/MobileSuiteTopBar.svelte"]
+    }
+  },
+  "include": ["src/**/*.ts", "src/**/*.svelte"]
+}

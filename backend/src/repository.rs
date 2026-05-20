@@ -39,7 +39,10 @@ pub trait SuiteRepository: Send + Sync {
     async fn delete_feed_favorite(&self, id: Uuid) -> AppResult<()>;
     async fn audio_recordings(&self) -> AppResult<Vec<AudioRecording>>;
     async fn audio_folders(&self) -> AppResult<Vec<AudioFolder>>;
-    async fn create_audio_folder(&self, request: CreateAudioFolderRequest) -> AppResult<AudioFolder>;
+    async fn create_audio_folder(
+        &self,
+        request: CreateAudioFolderRequest,
+    ) -> AppResult<AudioFolder>;
     async fn delete_audio_folder(&self, id: Uuid) -> AppResult<()>;
     async fn create_audio_recording(
         &self,
@@ -92,6 +95,319 @@ struct RepositoryData {
 impl InMemoryRepository {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub async fn admin_database_tables(&self) -> Vec<AdminDatabaseTable> {
+        let data = self.inner.read().await;
+        let active_document_ids = data
+            .notes
+            .values()
+            .filter(|note| note.deleted_at.is_none())
+            .map(|note| note.document_id)
+            .collect::<std::collections::HashSet<_>>();
+        let active_documents = data
+            .documents
+            .values()
+            .filter(|document| active_document_ids.contains(&document.id))
+            .cloned()
+            .collect::<Vec<_>>();
+        let crdt_update_rows = active_documents
+            .iter()
+            .flat_map(|document| document.updates.iter())
+            .map(|update| {
+                serde_json::json!({
+                    "id": update.id,
+                    "document_id": update.document_id,
+                    "client_id": update.client_id,
+                    "sequence": update.sequence,
+                    "payload_bytes": update.payload.len(),
+                    "created_at": update.created_at,
+                })
+            })
+            .collect::<Vec<_>>();
+        let transcript_segment_rows = data
+            .audio_transcripts
+            .values()
+            .flat_map(|transcript| transcript.segments.iter())
+            .map(|segment| {
+                serde_json::json!({
+                    "id": segment.id,
+                    "recording_id": segment.recording_id,
+                    "channel": segment.channel,
+                    "speaker_label": segment.speaker_label,
+                    "start_ms": segment.start_ms,
+                    "end_ms": segment.end_ms,
+                    "text": segment.text,
+                })
+            })
+            .collect::<Vec<_>>();
+        let table = |key: &str,
+                     label: &str,
+                     row_count: usize,
+                     columns: &[&str],
+                     rows: Vec<serde_json::Value>|
+         -> AdminDatabaseTable {
+            AdminDatabaseTable {
+                key: key.to_string(),
+                label: label.to_string(),
+                row_count,
+                columns: columns.iter().map(|column| column.to_string()).collect(),
+                rows,
+            }
+        };
+
+        vec![
+            table(
+                "app_registry",
+                "App Registry",
+                3,
+                &["id", "name", "route", "standalone_route", "capabilities"],
+                vec![
+                    feed_registry_entry(),
+                    notes_registry_entry(),
+                    audio_registry_entry(),
+                ]
+                .into_iter()
+                .map(|app| serde_json::to_value(app).unwrap_or_else(|_| serde_json::json!({})))
+                .collect(),
+            ),
+            table(
+                "note_folders",
+                "Note Folders",
+                data.note_folders.len(),
+                &[
+                    "id",
+                    "path",
+                    "name",
+                    "owner_id",
+                    "workspace_id",
+                    "created_at",
+                    "updated_at",
+                    "deleted_at",
+                ],
+                data.note_folders
+                    .values()
+                    .map(|folder| {
+                        serde_json::to_value(folder).unwrap_or_else(|_| serde_json::json!({}))
+                    })
+                    .collect(),
+            ),
+            table(
+                "notes",
+                "Notes",
+                data.notes.len(),
+                &[
+                    "id",
+                    "document_id",
+                    "title",
+                    "path",
+                    "tags",
+                    "owner_id",
+                    "workspace_id",
+                    "created_at",
+                    "updated_at",
+                    "deleted_at",
+                ],
+                data.notes
+                    .values()
+                    .map(|note| {
+                        serde_json::to_value(note).unwrap_or_else(|_| serde_json::json!({}))
+                    })
+                    .collect(),
+            ),
+            table(
+                "crdt_documents",
+                "CRDT Documents",
+                data.documents.len(),
+                &[
+                    "id",
+                    "kind",
+                    "snapshot_bytes",
+                    "update_count",
+                    "version",
+                    "compacted_at",
+                ],
+                data.documents
+                    .values()
+                    .map(|document| {
+                        serde_json::json!({
+                            "id": document.id,
+                            "kind": document.kind,
+                            "snapshot_bytes": document.snapshot.len(),
+                            "update_count": document.updates.len(),
+                            "version": document.version,
+                            "compacted_at": document.compacted_at,
+                        })
+                    })
+                    .collect(),
+            ),
+            table(
+                "crdt_updates",
+                "CRDT Updates",
+                crdt_update_rows.len(),
+                &[
+                    "id",
+                    "document_id",
+                    "client_id",
+                    "sequence",
+                    "payload_bytes",
+                    "created_at",
+                ],
+                crdt_update_rows,
+            ),
+            table(
+                "sync_tombstones",
+                "Sync Tombstones",
+                data.tombstones.len(),
+                &["entity", "id", "deleted_at"],
+                data.tombstones
+                    .values()
+                    .map(|tombstone| {
+                        serde_json::to_value(tombstone).unwrap_or_else(|_| serde_json::json!({}))
+                    })
+                    .collect(),
+            ),
+            table(
+                "feed_activity_events",
+                "Feed Activity Events",
+                data.feed_events.len(),
+                &[
+                    "id",
+                    "app_id",
+                    "action",
+                    "summary",
+                    "target_kind",
+                    "target_id",
+                    "target_label",
+                    "actor_id",
+                    "actor_name",
+                    "workspace_id",
+                    "is_public",
+                    "created_at",
+                ],
+                data.feed_events
+                    .iter()
+                    .map(|event| {
+                        serde_json::to_value(event).unwrap_or_else(|_| serde_json::json!({}))
+                    })
+                    .collect(),
+            ),
+            table(
+                "feed_favorites",
+                "Feed Favorites",
+                data.feed_favorites.len(),
+                &[
+                    "id",
+                    "target_kind",
+                    "target_id",
+                    "label",
+                    "app_id",
+                    "actor_id",
+                    "workspace_id",
+                    "created_at",
+                ],
+                data.feed_favorites
+                    .values()
+                    .map(|favorite| {
+                        serde_json::to_value(favorite).unwrap_or_else(|_| serde_json::json!({}))
+                    })
+                    .collect(),
+            ),
+            table(
+                "audio_folders",
+                "Audio Folders",
+                data.audio_folders.len(),
+                &[
+                    "id",
+                    "path",
+                    "name",
+                    "owner_id",
+                    "workspace_id",
+                    "created_at",
+                    "updated_at",
+                    "deleted_at",
+                ],
+                data.audio_folders
+                    .values()
+                    .map(|folder| {
+                        serde_json::to_value(folder).unwrap_or_else(|_| serde_json::json!({}))
+                    })
+                    .collect(),
+            ),
+            table(
+                "audio_recordings",
+                "Audio Recordings",
+                data.audio_recordings.len(),
+                &[
+                    "id",
+                    "title",
+                    "path",
+                    "mime_type",
+                    "duration_ms",
+                    "size_bytes",
+                    "status",
+                    "asset_ref",
+                    "owner_id",
+                    "workspace_id",
+                    "created_at",
+                    "updated_at",
+                    "deleted_at",
+                ],
+                data.audio_recordings
+                    .values()
+                    .map(|recording| {
+                        serde_json::to_value(recording).unwrap_or_else(|_| serde_json::json!({}))
+                    })
+                    .collect(),
+            ),
+            table(
+                "audio_assets",
+                "Audio Assets",
+                data.audio_assets.len(),
+                &["recording_id", "data_url_bytes"],
+                data.audio_assets
+                    .iter()
+                    .map(|(recording_id, data_url)| {
+                        serde_json::json!({
+                            "recording_id": recording_id,
+                            "data_url_bytes": data_url.len(),
+                        })
+                    })
+                    .collect(),
+            ),
+            table(
+                "audio_transcripts",
+                "Audio Transcripts",
+                data.audio_transcripts.len(),
+                &["recording_id", "status", "segment_count", "updated_at"],
+                data.audio_transcripts
+                    .values()
+                    .map(|transcript| {
+                        serde_json::json!({
+                            "recording_id": transcript.recording_id,
+                            "status": transcript.status,
+                            "segment_count": transcript.segments.len(),
+                            "updated_at": transcript.updated_at,
+                        })
+                    })
+                    .collect(),
+            ),
+            table(
+                "audio_transcript_segments",
+                "Audio Transcript Segments",
+                transcript_segment_rows.len(),
+                &[
+                    "id",
+                    "recording_id",
+                    "channel",
+                    "speaker_label",
+                    "start_ms",
+                    "end_ms",
+                    "text",
+                ],
+                transcript_segment_rows,
+            ),
+        ]
     }
 }
 
@@ -457,7 +773,9 @@ impl SuiteRepository for InMemoryRepository {
         if let Some(existing) = data
             .audio_folders
             .values()
-            .find(|folder| normalize_folder_path(&folder.path) == path && folder.deleted_at.is_none())
+            .find(|folder| {
+                normalize_folder_path(&folder.path) == path && folder.deleted_at.is_none()
+            })
             .cloned()
         {
             return Ok(existing);

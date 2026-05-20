@@ -1,13 +1,8 @@
 import { mount } from 'svelte'
-import AudioApp from './AudioApp.svelte'
-import { createStandaloneRuntime } from './runtime'
+import StandaloneAudioApp from './StandaloneAudioApp.svelte'
 import './audio.css'
 import './styles.css'
 
-mount(AudioApp, {
+mount(StandaloneAudioApp, {
   target: document.getElementById('app')!,
-  props: {
-    services: createStandaloneRuntime(),
-    mode: 'standalone',
-  },
 })

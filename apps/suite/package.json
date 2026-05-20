@@ -9,6 +9,7 @@
     "check": "svelte-check --tsconfig ./tsconfig.json"
   },
   "dependencies": {
+    "@og-suite/admin": "0.1.0",
     "@og-suite/audio": "0.1.0",
     "@og-suite/contracts": "0.1.0",
     "@og-suite/feed": "0.1.0",

@@ -1,6 +1,7 @@
 use crate::{error::AppError, error::AppResult};
 
 const INITIAL_SCHEMA: &str = include_str!("../migrations/001_initial.sql");
+const PROFILE_SESSION_SCHEMA: &str = include_str!("../migrations/002_profiles_sessions.sql");
 
 pub async fn run_migrations_from_env() -> AppResult<()> {
     let Ok(database_url) = std::env::var("DATABASE_URL") else {
@@ -20,10 +21,19 @@ pub async fn run_migrations(database_url: &str) -> AppResult<()> {
     client
         .batch_execute(INITIAL_SCHEMA)
         .await
+        .map_err(AppError::from)?;
+    client
+        .batch_execute(PROFILE_SESSION_SCHEMA)
+        .await
         .map_err(AppError::from)
 }
 
 #[cfg(test)]
 pub fn initial_schema() -> &'static str {
     INITIAL_SCHEMA
+}
+
+#[cfg(test)]
+pub fn profile_session_schema() -> &'static str {
+    PROFILE_SESSION_SCHEMA
 }

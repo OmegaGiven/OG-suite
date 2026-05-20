@@ -5,7 +5,173 @@ export type AppCapability = 'offline' | 'remoteSave' | 'collaboration' | 'files'
 export type UserProfile = {
   id: string
   displayName: string
+  username?: string
   roles: string[]
+  mustChangePassword: boolean
+}
+
+export type WorkspaceProfile = {
+  id: string
+  name: string
+}
+
+export type AuthSession = {
+  user: UserProfile
+  workspace: WorkspaceProfile
+  accessToken: string
+  refreshToken: string
+  expiresAt: IsoDateTime
+}
+
+export type CurrentSession = {
+  user: UserProfile
+  workspace: WorkspaceProfile
+  expiresAt: IsoDateTime
+}
+
+export type RegisterProfileRequest = {
+  username: string
+  displayName: string
+  password: string
+}
+
+export type LoginRequest = {
+  username: string
+  password: string
+}
+
+export type RefreshSessionRequest = {
+  refreshToken: string
+}
+
+export type CompleteSetupRequest = {
+  username: string
+  displayName: string
+  password: string
+  confirmPassword: string
+}
+
+export type AppToolScope = {
+  feed: boolean
+  notes: boolean
+  files: boolean
+  audio: boolean
+  admin: boolean
+}
+
+export type AdminRolePolicy = {
+  name: string
+  appScopes: AppToolScope
+  adminPanel: boolean
+  manageUsers: boolean
+  manageStorage: boolean
+  manageAuth: boolean
+  manageDeployment: boolean
+  manageDatabase: boolean
+  viewAudits: boolean
+}
+
+export type CreateAdminRoleRequest = AdminRolePolicy
+
+export type AdminUserSummary = {
+  id: string
+  username: string
+  displayName: string
+  roles: string[]
+  mustChangePassword: boolean
+  storageUsedBytes: number
+  storageLimitMb: number
+  appScopes: AppToolScope
+  createdAt: IsoDateTime
+  updatedAt: IsoDateTime
+}
+
+export type CreateAdminUserRequest = {
+  username: string
+  displayName: string
+  password: string
+  roles: string[]
+  storageLimitMb: number
+  appScopes: AppToolScope
+}
+
+export type UpdateAdminUserAccessRequest = {
+  roles: string[]
+  storageLimitMb: number
+  appScopes: AppToolScope
+}
+
+export type ResetAdminUserPasswordRequest = {
+  password: string
+  confirmPassword: string
+}
+
+export type AdminStorageOverview = {
+  totalUsedBytes: number
+  totalLimitMb: number
+  userCount: number
+  notesBytes: number
+  audioBytes: number
+  filesBytes: number
+}
+
+export type AdminDatabaseTable = {
+  key: string
+  label: string
+  rowCount: number
+  columns: string[]
+  rows: Record<string, unknown>[]
+}
+
+export type AdminDatabaseOverview = {
+  backend: string
+  generatedAt: IsoDateTime
+  tables: AdminDatabaseTable[]
+}
+
+export type AdminAuditEntry = {
+  id: string
+  occurredAt: IsoDateTime
+  actorId: string
+  actorLabel: string
+  action: string
+  targetKind: string
+  targetLabel: string
+  details?: Record<string, unknown>
+}
+
+export type AdminAuthSettings = {
+  defaultAdminEnabled: boolean
+  localPasswordEnabled: boolean
+  requireSetupPasswordChange: boolean
+}
+
+export type AdminDeploymentSettings = {
+  serverVersion: string
+  buildDate: string
+  apiCompatibilityVersion: string
+  releaseChannel: string
+}
+
+export type AdminSummary = {
+  generatedAt: IsoDateTime
+  users: AdminUserSummary[]
+  rolePolicies: AdminRolePolicy[]
+  storage: AdminStorageOverview
+  authentication: AdminAuthSettings
+  deployment: AdminDeploymentSettings
+  database: AdminDatabaseOverview
+  audits: AdminAuditEntry[]
+}
+
+export type SystemVersion = {
+  backendVersion: string
+  apiCompatibilityVersion: string
+  minimumClientVersion: string
+  buildDate: string
+  capabilities: string[]
+  authRequired: boolean
+  authModes: string[]
 }
 
 export type AppRegistryEntry = {

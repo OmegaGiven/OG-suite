@@ -11,6 +11,9 @@
       "@og-suite/ui/FileNavigator": ["../../packages/ui/src/FileNavigator.svelte"],
       "@og-suite/ui/Icon": ["../../packages/ui/src/Icon.svelte"],
       "@og-suite/ui/MobileSuiteMenu": ["../../packages/ui/src/MobileSuiteMenu.svelte"],
+      "@og-suite/ui/MobileSuiteTopBar": ["../../packages/ui/src/MobileSuiteTopBar.svelte"],
+      "@og-suite/admin": ["../admin/src/AdminApp.svelte"],
+      "@og-suite/admin/*": ["../admin/src/*"],
       "@og-suite/notes": ["../notes/src/NotesApp.svelte"],
       "@og-suite/notes/AppearanceSettings": ["../notes/src/AppearanceSettings.svelte"],
       "@og-suite/notes/*": ["../notes/src/*"],
@@ -20,5 +23,5 @@
       "@og-suite/audio/*": ["../audio/src/*"]
     }
   },
-  "include": ["src/**/*.ts", "src/**/*.svelte", "vite.config.ts", "../notes/src/**/*.svelte", "../notes/src/**/*.ts", "../files/src/**/*.svelte", "../files/src/**/*.ts", "../audio/src/**/*.svelte", "../audio/src/**/*.ts"]
+  "include": ["src/**/*.ts", "src/**/*.svelte", "vite.config.ts", "../admin/src/**/*.svelte", "../admin/src/**/*.ts", "../notes/src/**/*.svelte", "../notes/src/**/*.ts", "../files/src/**/*.svelte", "../files/src/**/*.ts", "../audio/src/**/*.svelte", "../audio/src/**/*.ts"]
 }

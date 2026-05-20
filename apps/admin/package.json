@@ -1,0 +1,23 @@
+{
+  "name": "@og-suite/admin",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/AdminApp.svelte",
+    "./manifest": "./src/manifest.ts"
+  },
+  "scripts": {
+    "check": "svelte-check --tsconfig ./tsconfig.json"
+  },
+  "dependencies": {
+    "@og-suite/contracts": "0.1.0",
+    "@og-suite/runtime": "0.1.0",
+    "@og-suite/ui": "0.1.0",
+    "svelte": "^5.0.0"
+  },
+  "devDependencies": {
+    "svelte-check": "^4.0.0",
+    "typescript": "^5.6.0"
+  }
+}

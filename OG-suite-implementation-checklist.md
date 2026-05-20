@@ -511,7 +511,85 @@ Goal: Audio is the suite recording app. It should let users record audio, save r
   - [ ] multi-channel transcript renders channel labels
   - [ ] speaker labels render and can be renamed
 
-### 11. Verification
+### 11. Server Profiles, Secure Sync, And Updates
+Goal: Before building a mobile app, the web/server stack should support real profiles, secure user-scoped data, reliable backup status, and version compatibility checks. Mobile can then connect to a specific OG Suite server without changing the core security or sync model.
+
+- [ ] Replace auth placeholder with real profile/account support:
+  - [x] add backend user/profile model with stable user id, display name, email or username, and created/updated timestamps
+  - [x] add workspace ownership model so one user can own one or more workspaces later
+  - [x] decide first supported sign-in mode: email/password, invite-code local accounts, or external OAuth
+  - [x] seed first-run default admin credentials as `admin` / `password`
+  - [x] mark the default admin account as requiring credential setup before normal app use
+  - [x] add setup completion endpoint with new username, display name, password, and confirm password
+  - [ ] add secure password hashing if local passwords are supported
+  - [x] add login, refresh, logout, and session revoke endpoints
+  - [x] store short-lived access tokens and revocable refresh tokens
+  - [x] add profile/session API for current user, current workspace, and permissions
+- [ ] Scope all existing data to authenticated users/workspaces:
+  - [ ] notes and note folders require owner/workspace checks
+  - [ ] CRDT documents, snapshots, and update logs require owner/workspace checks
+  - [ ] sync cursors and tombstones require owner/workspace checks
+  - [ ] audio recordings, audio folders, assets, and transcripts require owner/workspace checks
+  - [ ] files and drive items require owner/workspace checks
+  - [ ] feed activity and favorites require owner/workspace checks
+  - [ ] downloads and media asset routes verify current user access before returning content
+  - [ ] migrations backfill current single-user data into a default owner/workspace
+- [ ] Add profile/session UI:
+  - [x] login screen for unauthenticated users
+  - [x] first-run setup screen after logging in with the default admin account
+  - [x] require password confirmation before finishing first-run setup
+  - [x] current profile indicator in Suite/settings
+  - [x] sign out action
+  - [ ] session expired state with clear recovery path
+  - [ ] show connected server URL and current workspace
+- [ ] Add admin management area:
+  - [x] add admin-only nav item in Suite
+  - [x] add admin dashboard shell with sections for users, roles/scopes, storage, authentication, deployment, database, and audits
+  - [x] add backend admin summary endpoint protected by the `admin` role
+  - [x] show user roles, app scopes, setup status, and storage limits
+  - [x] show role policy defaults for app access and admin abilities
+  - [x] show storage, auth, deployment, database, and audit overview cards
+  - [x] allow admins to create users and reset user passwords
+  - [x] allow admins to edit roles/scopes per user
+  - [x] allow admins to edit per-user storage limits
+  - [ ] disable/delete users safely with ownership transfer rules
+  - [ ] enforce app scopes in the frontend nav and backend APIs
+  - [ ] enforce per-user storage limits during uploads and sync
+  - [x] persist audit entries for first-run setup and admin user changes
+- [ ] Add server connection readiness for future mobile:
+  - [x] backend exposes server identity and capabilities endpoint
+  - [x] backend exposes whether auth is required and which auth modes are enabled
+  - [ ] client stores server URL separately from auth/session state
+  - [ ] client can validate that the configured server is an OG Suite server before login
+  - [ ] add device id generation on first client launch
+  - [ ] add backend trusted-device table with user id, device id, device name, platform, created time, and last seen time
+  - [ ] attach device id to sync/feed operations where useful
+- [ ] Harden local-first backup behavior:
+  - [ ] all queued operations include user/workspace/device context
+  - [ ] queued operations fail closed if the active profile changes
+  - [ ] show per-area backup status: saved locally, syncing, backed up, failed
+  - [ ] show "this device only" for local audio/files that have not reached the server
+  - [ ] retry failed uploads/sync operations with clear user-visible state
+  - [ ] prevent duplicate uploads by tracking local operation ids
+  - [ ] add conflict and permission error states for data that no longer belongs to the active profile
+- [ ] Add version and update infrastructure:
+  - [x] backend exposes `GET /api/v1/system/version`
+  - [x] version response includes backend version, API compatibility version, minimum supported client version, build date, and enabled capabilities
+  - [ ] frontend checks server compatibility on startup
+  - [ ] show update available when server and client versions differ but remain compatible
+  - [ ] block with a clear message when the client is below the server minimum supported version
+  - [ ] add database migration tracking table and migration status endpoint
+  - [ ] document release/update steps for backend migrations and frontend deployments
+  - [ ] add release channel field for future stable/beta update checks
+- [ ] Add security verification:
+  - [ ] tests prove one profile cannot read another profile's notes
+  - [ ] tests prove one profile cannot read another profile's audio/files
+  - [ ] tests prove sync bootstrap/pull/push only returns current workspace data
+  - [ ] tests prove asset/download routes require authorization
+  - [ ] tests cover token refresh and revoke behavior
+  - [ ] tests cover default single-user migration/backfill
+
+### 12. Verification
 - [x] Backend tests:
   - health route
   - migrations
