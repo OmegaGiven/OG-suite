@@ -15,6 +15,7 @@
     "backend:dev": "cargo run --manifest-path backend/Cargo.toml",
     "backend:test": "cargo test --manifest-path backend/Cargo.toml",
     "stress:concurrency": "node scripts/concurrency-stress.mjs",
+    "stress:selection": "node scripts/selection-stability-stress.mjs",
     "stress:rich": "node scripts/rich-concurrency-stress.mjs",
     "test:rich-format": "node scripts/rich-format-regression.mjs"
   },

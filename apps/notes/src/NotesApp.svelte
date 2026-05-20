@@ -87,6 +87,8 @@
   let syncLog: Array<{ id: string; message: string; at: string }> = []
   let queuedOperationCount = 0
   let backingUpServerId = ''
+  let lastEditorInteractionAt = 0
+  let deferredDocumentRefreshId = ''
   let peers: PresencePeer[] = []
   let sequence = 1
   let unsubscribePresence: (() => void) | null = null
@@ -137,6 +139,7 @@
   let handledOpenTargetKey = ''
   let isLocalRuntime = services.runtimeMode === 'local'
   let editorRenderMode: EditorRenderMode = loadEditorRenderMode()
+  const selectionProtectionMs = 1800
   const turndown = new TurndownService({ headingStyle: 'atx', codeBlockStyle: 'fenced' })
 
   marked.use({
@@ -796,8 +799,7 @@
           const note = notes.find((item) => item.documentId === activeDocumentId)
           if (note) {
             selectedNoteId = note.id
-            const nextDocument = envelope?.documents.find((document) => document.id === activeDocumentId)
-            if (nextDocument) setEditorTextPreservingSelection(applyUpdates(nextDocument).text, true)
+            refreshSelectedEditorFromEnvelope(activeDocumentId)
           }
         }
         status = 'Synced'
@@ -831,6 +833,10 @@
   function refreshSelectedEditorFromEnvelope(documentId = selectedNote?.documentId) {
     if (!documentId || !envelope || saveTimer) return
     if (selectedNote?.documentId !== documentId) return
+    if (shouldProtectEditorSelection(documentId)) {
+      deferredDocumentRefreshId = documentId
+      return
+    }
     if (editorRenderMode === 'rich') {
       const richDocument = envelope.documents.find((document) => document.id === documentId)
       if (richDocument) applyRichDocumentState(richDocument)
@@ -843,7 +849,10 @@
 
   function applyRichDocumentState(documentState: CrdtDocumentState) {
     if (editorRenderMode === 'rich' && richEditor && !richYDoc) {
-      if (richEditor.isFocused && hasPendingLocalEditorChange(documentState.id)) return
+      if (shouldProtectEditorSelection(documentState.id) || (richEditor.isFocused && hasPendingLocalEditorChange(documentState.id))) {
+        deferredDocumentRefreshId = documentState.id
+        return
+      }
       const nextText = applyUpdates(documentState).text
       editorText = nextText
       lastSavedEditorText = nextText
@@ -861,8 +870,35 @@
   }
 
   function handleEditorInput() {
+    markEditorInteraction()
     if (selectedNote) services.presence.publishCursor(selectedNote.documentId, editorElement?.selectionStart ?? editorText.length)
     scheduleDocumentSave()
+  }
+
+  async function handleEditorBlur() {
+    await saveDocument()
+    applyDeferredDocumentRefresh()
+  }
+
+  function markEditorInteraction() {
+    lastEditorInteractionAt = Date.now()
+  }
+
+  function shouldProtectEditorSelection(documentId = selectedNote?.documentId) {
+    if (!documentId || selectedNote?.documentId !== documentId) return false
+    const recentlyInteracted = Date.now() - lastEditorInteractionAt < selectionProtectionMs
+    if (editorRenderMode === 'rich' && richEditor?.isFocused) {
+      return recentlyInteracted || !richEditor.state.selection.empty
+    }
+    if (!editorElement || document.activeElement !== editorElement) return false
+    return recentlyInteracted || editorElement.selectionStart !== editorElement.selectionEnd
+  }
+
+  function applyDeferredDocumentRefresh() {
+    const documentId = deferredDocumentRefreshId
+    if (!documentId || shouldProtectEditorSelection(documentId)) return
+    deferredDocumentRefreshId = ''
+    refreshSelectedEditorFromEnvelope(documentId)
   }
 
   function hasPendingLocalEditorChange(documentId = selectedNote?.documentId) {
@@ -1523,6 +1559,7 @@
         },
       },
       onUpdate: () => {
+        markEditorInteraction()
         richActiveStateVersion += 1
         queueMicrotask(updateRichTableToolsFromSelection)
         scheduleDocumentSave()
@@ -1530,8 +1567,12 @@
         services.presence.publishCursor(selectedNote.documentId, richEditor?.state.selection.from ?? null)
       },
       onSelectionUpdate: () => {
+        markEditorInteraction()
         richActiveStateVersion += 1
         queueMicrotask(updateRichTableToolsFromSelection)
+      },
+      onBlur: () => {
+        applyDeferredDocumentRefresh()
       },
       onTransaction: () => {
         richActiveStateVersion += 1
@@ -2218,7 +2259,11 @@
             bind:value={editorText}
             aria-label={editorRenderMode === 'markdown' ? 'Markdown source' : 'Note text'}
             on:input={handleEditorInput}
-            on:blur={() => void saveDocument()}
+            on:select={markEditorInteraction}
+            on:keyup={markEditorInteraction}
+            on:pointerdown={markEditorInteraction}
+            on:pointerup={markEditorInteraction}
+            on:blur={() => void handleEditorBlur()}
             spellcheck="true"
           ></textarea>
         {/if}
