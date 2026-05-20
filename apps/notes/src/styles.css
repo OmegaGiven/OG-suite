@@ -1766,8 +1766,14 @@ footer {
   .notes-app {
     --page-gutter: 0px;
     --og-margin: 0px;
+    position: fixed;
+    inset: 0;
     grid-template-columns: 1fr;
     grid-template-rows: minmax(0, 1fr);
+    width: 100vw;
+    height: 100dvh;
+    min-height: 0;
+    overflow: hidden;
   }
 
   .notes-list,
@@ -1780,8 +1786,9 @@ footer {
   }
 
   .editor-shell {
-    height: 100vh;
-    min-height: 100vh;
+    height: 100dvh;
+    max-height: 100dvh;
+    min-height: 0;
     grid-template-rows: auto auto minmax(0, 1fr);
     gap: 0;
     overflow: hidden;
@@ -1879,13 +1886,18 @@ footer {
   }
 
   .metadata {
-    position: sticky;
+    position: relative;
     top: 0;
     z-index: 20;
+    flex: 0 0 auto;
     padding-top: max(6px, env(safe-area-inset-top));
     padding-bottom: 4px;
     background: transparent;
     backdrop-filter: blur(14px);
+  }
+
+  .toolbar {
+    flex: 0 0 auto;
   }
 
   .note-title-panel {
@@ -1915,6 +1927,7 @@ footer {
   .editor-workspace {
     min-height: 0;
     height: 100%;
+    overflow: hidden;
   }
 
   .editor-workspace.markdown-mode {
@@ -1927,6 +1940,8 @@ footer {
     height: 100%;
     min-height: 0;
     border-bottom: 0;
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
   }
 
   .editor-workspace.markdown-mode textarea {
