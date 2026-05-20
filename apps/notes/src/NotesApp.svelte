@@ -117,6 +117,7 @@
   let sidebarWidth = 280
   let resizingSidebar = false
   let handledOpenTargetKey = ''
+  let isLocalRuntime = services.runtimeMode === 'local'
   let editorRenderMode: EditorRenderMode = loadEditorRenderMode()
   const turndown = new TurndownService({ headingStyle: 'atx', codeBlockStyle: 'fenced' })
 
@@ -192,6 +193,7 @@
         ? 'Saving'
         : 'Offline'
   $: tocHeadings = editorRenderMode === 'rich' ? getRichHeadings(richActiveStateVersion) : getMarkdownHeadings(editorText)
+  $: isLocalRuntime = services.runtimeMode === 'local'
 
   function getSaveIndicatorState(currentStatus: string): SaveIndicatorState {
     if (currentStatus.toLowerCase().includes('offline')) return 'offline'
@@ -204,10 +206,10 @@
     applyTokens(services.tokens)
     await discardLegacyQueuedDocumentUpdates()
     envelope = await bootstrapWorkspace(services)
-    await tryFlushAndPull()
+    if (!isLocalRuntime) await tryFlushAndPull()
     if (notes[0]) selectNote(notes[0])
-    startRemotePullFallback()
-    status = mode === 'suite' ? 'Loaded in Suite' : 'Loaded standalone'
+    if (!isLocalRuntime) startRemotePullFallback()
+    status = isLocalRuntime ? 'Loaded local notes' : mode === 'suite' ? 'Loaded in Suite' : 'Loaded standalone'
   }
 
   async function discardLegacyQueuedDocumentUpdates() {
@@ -222,6 +224,12 @@
   }
 
   async function tryFlushAndPull() {
+    if (isLocalRuntime) {
+      envelope = await services.cache.loadEnvelope()
+      refreshSelectedEditorFromEnvelope()
+      status = 'Saved locally'
+      return
+    }
     try {
       envelope = await flushQueuedOperations(services)
       envelope = await pullChanges(services)
@@ -690,7 +698,7 @@
     const broadcasted = services.documentUpdates.publishUpdate(selectedNote.documentId, update)
     scheduleRemoteFlush()
     services.presence.publishCursor(selectedNote.documentId, editorElement?.selectionStart ?? editorText.length)
-    status = broadcasted ? 'Document shared live' : 'Document queued for sync'
+    status = isLocalRuntime ? 'Saved locally' : broadcasted ? 'Document shared live' : 'Document queued for sync'
   }
 
   function scheduleDocumentSave() {
@@ -710,6 +718,10 @@
   }
 
   function scheduleRemoteFlush() {
+    if (isLocalRuntime) {
+      status = 'Saved locally'
+      return
+    }
     if (flushTimer) clearTimeout(flushTimer)
     flushTimer = setTimeout(async () => {
       flushTimer = null
@@ -837,6 +849,7 @@
   }
 
   async function refreshSelectedDocumentFromServer(documentId = selectedNote?.documentId) {
+    if (isLocalRuntime) return
     if (!documentId || !envelope || saveTimer || flushTimer) return
     if (document.activeElement === editorElement && hasPendingLocalEditorChange(documentId)) return
     try {
@@ -859,6 +872,7 @@
   }
 
   function startRemotePullFallback() {
+    if (isLocalRuntime) return
     if (pullTimer) clearInterval(pullTimer)
     pullTimer = setInterval(async () => {
       if (!selectedNote || saveTimer || flushTimer) return
@@ -1517,7 +1531,7 @@
       envelope = await services.cache.loadEnvelope()
       const broadcasted = services.documentUpdates.publishUpdate(documentId, crdtUpdate)
       scheduleRemoteFlush()
-      status = broadcasted ? 'Rich text shared live' : 'Rich text queued for sync'
+      status = isLocalRuntime ? 'Saved locally' : broadcasted ? 'Rich text shared live' : 'Rich text queued for sync'
     } finally {
       richFlushInFlight = false
       if (richPendingUpdates.length > 0 && !richUpdateTimer) {

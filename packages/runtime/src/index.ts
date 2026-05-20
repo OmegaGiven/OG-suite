@@ -57,6 +57,8 @@ export type RuntimeServices = {
   documentUpdates: DocumentUpdateChannel
   tokens: DesignTokens
   clientId: string
+  runtimeMode?: 'remote' | 'local'
+  serverUrl?: string
 }
 
 export type RegisteredApp = {
@@ -68,6 +70,21 @@ export type QueuedOperation = {
   id: string
   operation: SyncOperation
   createdAt: string
+}
+
+export function createRuntimeId(prefix = 'id'): string {
+  if (globalThis.crypto && typeof globalThis.crypto.randomUUID === 'function') {
+    return globalThis.crypto.randomUUID()
+  }
+  if (globalThis.crypto && typeof globalThis.crypto.getRandomValues === 'function') {
+    const bytes = new Uint8Array(16)
+    globalThis.crypto.getRandomValues(bytes)
+    bytes[6] = (bytes[6] & 0x0f) | 0x40
+    bytes[8] = (bytes[8] & 0x3f) | 0x80
+    const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('')
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
+  }
+  return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
 }
 
 export function registerApp(manifest: AppManifest): RegisteredApp {
@@ -108,6 +125,18 @@ export function createHttpApiClient(baseUrl: string, getAccessToken?: () => stri
   }
 }
 
+export function createOfflineApiClient(message = 'Local-only mode is not connected to a server.'): ApiClient {
+  async function unavailable<T>(): Promise<T> {
+    throw new Error(message)
+  }
+  return {
+    get: () => unavailable(),
+    post: () => unavailable(),
+    patch: () => unavailable(),
+    delete: () => unavailable(),
+  }
+}
+
 export function createBrowserLocalCache(key = 'og-suite:workspace'): LocalCache {
   return {
     async loadEnvelope() {
@@ -134,7 +163,7 @@ export function createBrowserSyncQueue(key = 'og-suite:sync-queue'): SyncQueue {
     },
     async enqueue(operation) {
       const queued = {
-        id: crypto.randomUUID(),
+        id: createRuntimeId('queue'),
         operation,
         createdAt: new Date().toISOString(),
       }
@@ -145,6 +174,20 @@ export function createBrowserSyncQueue(key = 'og-suite:sync-queue'): SyncQueue {
       const idSet = new Set(ids)
       save(load().filter((item) => !idSet.has(item.id)))
     },
+  }
+}
+
+export function createNoopPresenceChannel(): PresenceChannel {
+  return {
+    connect: () => () => {},
+    publishCursor: () => {},
+  }
+}
+
+export function createNoopDocumentUpdateChannel(): DocumentUpdateChannel {
+  return {
+    connect: () => () => {},
+    publishUpdate: () => false,
   }
 }
 
