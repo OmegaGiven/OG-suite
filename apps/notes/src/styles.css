@@ -2164,10 +2164,6 @@ footer {
     overflow: hidden;
   }
 
-  .editor-shell.editor-focused {
-    grid-template-rows: auto minmax(0, 1fr);
-  }
-
   .notes-list {
     position: fixed;
     inset: 0;
@@ -2378,47 +2374,6 @@ footer {
     backdrop-filter: none;
   }
 
-  .editor-shell.editor-focused .metadata {
-    grid-row: 1;
-    grid-column: 1;
-    justify-self: end;
-    width: auto;
-    padding: max(4px, env(safe-area-inset-top)) 4px 0 0;
-    z-index: 25;
-    pointer-events: none;
-  }
-
-  .editor-shell.editor-focused .note-title-panel {
-    width: auto;
-    min-height: 34px;
-    padding: 0;
-    border: 0;
-    background: transparent;
-    box-shadow: none;
-  }
-
-  .editor-shell.editor-focused .note-title-panel input,
-  .editor-shell.editor-focused .empty-note-title,
-  .editor-shell.editor-focused .save-indicator {
-    display: none;
-  }
-
-  .editor-shell.editor-focused .metadata .mobile-files-toggle {
-    pointer-events: auto;
-  }
-
-  .editor-shell.editor-focused .toolbar.og-action-bar.wrap {
-    grid-row: 1;
-    grid-column: 1;
-    padding-right: 44px;
-  }
-
-  .editor-shell.editor-focused .editor-workspace,
-  .editor-shell.editor-focused .empty-editor {
-    grid-row: 2;
-    grid-column: 1;
-  }
-
   .toolbar {
     position: sticky;
     top: 0;
@@ -2479,8 +2434,8 @@ footer {
     touch-action: pan-y;
     -webkit-overflow-scrolling: touch;
     box-shadow: none;
-    padding-bottom: calc(var(--space-lg, 16px) + env(safe-area-inset-bottom));
-    scroll-padding-bottom: calc(72px + env(safe-area-inset-bottom));
+    padding-bottom: calc(220px + env(safe-area-inset-bottom));
+    scroll-padding-bottom: calc(240px + env(safe-area-inset-bottom));
   }
 
   .rich-editor-host {
@@ -2491,7 +2446,8 @@ footer {
   .rich-editor-content {
     contain: layout paint style;
     min-height: calc(100% + 1px);
-    padding-bottom: calc(var(--space-xl, 24px) + env(safe-area-inset-bottom));
+    padding-bottom: calc(220px + env(safe-area-inset-bottom));
+    scroll-padding-bottom: calc(240px + env(safe-area-inset-bottom));
     transform: translateZ(0);
   }
 
