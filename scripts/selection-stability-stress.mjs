@@ -1,7 +1,7 @@
 import { chromium } from '@playwright/test'
 import * as Y from 'yjs'
 
-const appUrl = process.env.OG_STRESS_APP_URL ?? 'http://127.0.0.1:5174/?stress=selection'
+const appUrl = process.env.OG_STRESS_APP_URL ?? 'http://127.0.0.1:5173/?stress=selection'
 const apiUrl = process.env.OG_STRESS_API_URL ?? 'http://127.0.0.1:8080'
 const bravePath = '/Applications/Brave Browser.app/Contents/MOS/Brave Browser'.replace('/MOS/', '/MacOS/')
 const title = `Selection Stress ${Date.now()}`
@@ -68,11 +68,24 @@ try {
 
 async function openNote(page, mobileLayout = false) {
   await page.goto(appUrl, { waitUntil: 'networkidle' })
+  await openNotesApp(page)
   if (mobileLayout) await page.getByRole('button', { name: 'Open files' }).click()
-  await page.getByRole('button', { name: title, exact: true }).click()
+  await page.locator('.notes-list button.note-row').filter({ hasText: title }).first().click()
   const textarea = page.locator('textarea')
   await textarea.click()
   return textarea
+}
+
+async function openNotesApp(page) {
+  await page
+    .getByRole('button', { name: 'Notes', exact: true })
+    .click({ timeout: 5000 })
+    .catch(async () => {
+      await page.evaluate(() => {
+        const notesButton = Array.from(document.querySelectorAll('button')).find((button) => button.textContent?.trim() === 'Notes')
+        notesButton?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
+      })
+    })
 }
 
 async function prepareContext(context, authSession) {

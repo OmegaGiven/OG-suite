@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { AppearanceSettings as ServerAppearanceSettings, AppearanceTheme, BackgroundGradient, BackgroundGradientPoint, CurrentSession, CustomFont, DesignTokens } from '@og-suite/contracts'
+  import type { AppearanceSettings as ServerAppearanceSettings, AppearanceTheme, BackgroundGradient, BackgroundGradientPoint, CurrentSession, CustomFont, DesignTokens, SystemVersion } from '@og-suite/contracts'
   import type { RuntimeServices } from '@og-suite/runtime'
   import Icon from '@og-suite/ui/Icon'
   import {
@@ -27,6 +27,7 @@
   type SavedAppearanceTheme = AppearanceTheme
 
   const savedThemeStorageKey = 'og-suite:appearance-themes'
+  const clientVersion = import.meta.env.VITE_OG_APP_VERSION ?? '0.1.16'
 
   let backgroundImageInput: HTMLInputElement | null = null
   let themeImportInput: HTMLInputElement | null = null
@@ -40,6 +41,8 @@
   let shareCurrentTheme = true
   let importStatus = ''
   let themeStorageStatus = ''
+  let systemVersion: SystemVersion | null = null
+  let versionStatus = ''
   let currentUserId = ''
   let customFonts: CustomFont[] = loadStoredFonts()
   let fontStatus = ''
@@ -55,6 +58,7 @@
   ]
 
   onMount(() => {
+    void loadSystemVersion()
     if (serverThemeStorage) void loadServerAppearance()
     if (serverThemeStorage) void loadServerThemes()
   })
@@ -220,6 +224,19 @@
       if (settings?.tokens) commitTokens(normalizeTokens(settings.tokens), false)
     } catch {
       serverAppearanceLoaded = true
+    }
+  }
+
+  async function loadSystemVersion() {
+    if (!services || services.runtimeMode === 'local') {
+      versionStatus = `v${clientVersion}`
+      return
+    }
+    try {
+      systemVersion = await services.api.get<SystemVersion>('/api/v1/system/version')
+      versionStatus = `v${systemVersion.backendVersion}`
+    } catch {
+      versionStatus = `v${clientVersion}`
     }
   }
 
@@ -519,6 +536,7 @@
   <header class="settings-drawer-header">
     <div>
       <h2>Settings</h2>
+      <span class="settings-version">{versionStatus}</span>
     </div>
     <button class="settings-close" aria-label="Close settings" title="Close settings" on:click={onClose}>
       <span aria-hidden="true"></span>

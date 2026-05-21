@@ -19,6 +19,7 @@
     "stress:concurrency": "node scripts/concurrency-stress.mjs",
     "stress:delete": "node scripts/delete-concurrency-stress.mjs",
     "stress:selection": "node scripts/selection-stability-stress.mjs",
+    "stress:switching": "node scripts/switching-concurrency-stress.mjs",
     "stress:rich": "node scripts/rich-concurrency-stress.mjs",
     "test:rich-format": "node scripts/rich-format-regression.mjs"
   },

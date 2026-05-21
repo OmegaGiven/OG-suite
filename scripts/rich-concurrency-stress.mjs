@@ -44,7 +44,10 @@ async function runScenario({ label, firstText, secondText, expectedParts, second
   const title = `Rich Stress ${label} ${Date.now()}`
   const noteResponse = await fetch(`${apiUrl}/api/v1/notes`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: {
+      'content-type': 'application/json',
+      authorization: `Bearer ${session.accessToken}`,
+    },
     body: JSON.stringify({ title, path: '/', tags: [], initialText: '' }),
   })
 
@@ -130,13 +133,37 @@ async function newRichContext(options) {
 async function openRichNote(page, title, mobileLayout = false) {
   await page.goto(appUrl, { waitUntil: 'networkidle' })
   await openNotesApp(page)
-  if (mobileLayout) {
-    await page.getByRole('button', { name: 'Open files' }).click({ timeout: 5000 }).catch(() => {})
-  }
-  await page.locator('button').filter({ hasText: title }).first().click()
+  await selectNoteRow(page, title, mobileLayout)
   const editor = page.locator('.rich-editor-content')
   await editor.click()
   return editor
+}
+
+async function selectNoteRow(page, title, mobileLayout = false) {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    if (mobileLayout) {
+      await openMobileFiles(page)
+      await page.evaluate((title) => {
+        const row = Array.from(document.querySelectorAll('.notes-list.mobile-open .note-row, .notes-list .note-row')).find((item) => item.textContent?.includes(title))
+        if (row instanceof HTMLElement) row.click()
+      }, title)
+    } else {
+      await page.locator('.notes-list button.note-row').filter({ hasText: title }).first().click()
+    }
+    await page.locator('.rich-editor-content').waitFor()
+    const selectedTitle = await page.locator('input[aria-label="Title"]').inputValue().catch(() => '')
+    if (selectedTitle === title) return
+    await page.waitForTimeout(250)
+  }
+  throw new Error(`Could not select rich note ${title}`)
+}
+
+async function openMobileFiles(page) {
+  await page.evaluate(() => {
+    const button = Array.from(document.querySelectorAll('button')).find((item) => item.getAttribute('aria-label') === 'Open files')
+    if (button instanceof HTMLElement) button.click()
+  })
+  await page.locator('.notes-list.mobile-open').waitFor({ state: 'visible', timeout: 5000 }).catch(() => {})
 }
 
 async function reloadAndReadRichNote(page, title) {
@@ -216,37 +243,12 @@ function missingParts(value, expectedParts) {
 }
 
 async function getStressSession() {
-  const username = 'stress-admin'
+  const username = `rich-stress-${Date.now()}`
   const password = 'stress-password-123'
-  const directLogin = await login(username, password)
-  if (directLogin) return directLogin
-
-  const adminLogin = await login('admin', 'password')
-  if (adminLogin?.user?.mustChangePassword) {
-    const setup = await fetch(`${apiUrl}/api/v1/auth/complete-setup`, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        authorization: `Bearer ${adminLogin.accessToken}`,
-      },
-      body: JSON.stringify({
-        username,
-        displayName: 'Stress Admin',
-        password,
-        confirmPassword: password,
-      }),
-    })
-    if (setup.ok) {
-      await setup.json()
-      const session = await login(username, password)
-      if (session) return session
-    }
-  }
-
   const registered = await fetch(`${apiUrl}/api/v1/auth/register`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ username, displayName: 'Stress Admin', password }),
+    body: JSON.stringify({ username, displayName: 'Rich Stress User', password }),
   })
   if (registered.ok) return registered.json()
 

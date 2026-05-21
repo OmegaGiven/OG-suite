@@ -76,6 +76,7 @@
   let envelope: SyncEnvelope | null = null
   let selectedNoteId = ''
   let editorText = ''
+  let editorDocumentId = ''
   let lastSavedEditorText = ''
   let draftTitle = ''
   let draftPath = '/'
@@ -83,6 +84,12 @@
   let loggedStatus = ''
   let statusDialogOpen = false
   let syncLog: Array<{ id: string; message: string; at: string }> = []
+  let lastSyncAttemptAt = ''
+  let lastSyncPushAt = ''
+  let lastSyncPullAt = ''
+  let lastRemoteUpdateAt = ''
+  let lastDocumentRefreshAt = ''
+  let lastSyncError = ''
   let queuedOperationCount = 0
   let queuedDocumentIds: string[] = []
   let backingUpServerId = ''
@@ -132,6 +139,7 @@
   let collapsedFolderPaths: string[] = []
   let favoriteNoteIds: string[] = loadFavoriteNoteIds()
   let mobileFilesOpen = false
+  let editorFocused = false
   let sidebarWidth = 380
   let resizingSidebar = false
   let handledOpenTargetKey = ''
@@ -238,7 +246,18 @@
   $: activeServerLabel = isLocalRuntime ? 'Local device only' : activeServerUrl || services.serverUrl || 'Remote server'
   $: if (status && status !== loggedStatus) {
     loggedStatus = status
-    syncLog = [{ id: `${Date.now()}-${syncLog.length}`, message: status, at: new Date().toLocaleTimeString() }, ...syncLog].slice(0, 24)
+    logSyncEvent(status)
+  }
+
+  function logSyncEvent(message: string) {
+    syncLog = [{ id: `${Date.now()}-${syncLog.length}`, message, at: new Date().toLocaleTimeString() }, ...syncLog].slice(0, 40)
+  }
+
+  function recordSyncError(error: unknown, fallback: string) {
+    const message = error instanceof Error ? error.message : fallback
+    lastSyncError = `${new Date().toLocaleTimeString()} - ${message}`
+    logSyncEvent(`Error: ${message}`)
+    return message
   }
 
   function getSaveIndicatorState(currentStatus: string): SaveIndicatorState {
@@ -272,6 +291,7 @@
   }
 
   async function tryFlushAndPull() {
+    lastSyncAttemptAt = new Date().toLocaleTimeString()
     if (isLocalRuntime) {
       envelope = await services.cache.loadEnvelope()
       refreshSelectedEditorFromEnvelope()
@@ -280,13 +300,16 @@
     }
     try {
       envelope = await flushQueuedOperations(services)
+      lastSyncPushAt = new Date().toLocaleTimeString()
       await refreshQueuedOperationCount()
       if (queuedOperationCount === 0 && !shouldProtectEditorSelection()) {
         envelope = await pullChanges(services)
+        lastSyncPullAt = new Date().toLocaleTimeString()
         refreshSelectedEditorFromEnvelope()
         await refreshSelectedDocumentFromServer()
       }
-    } catch {
+    } catch (error) {
+      recordSyncError(error, 'Could not reach server while syncing.')
       status = 'Offline, saving locally'
     }
   }
@@ -321,6 +344,7 @@
   async function backupSelectedNoteToServer(server: (typeof connectedServers)[number]) {
     if (!selectedNote || !selectedDocument || !server.accessToken) return
     backingUpServerId = server.id
+    logSyncEvent(`Manual backup started for ${server.url}`)
     try {
       await flushPendingEditorSave()
       const document = envelope?.documents.find((item) => item.id === selectedNote.documentId) ?? selectedDocument
@@ -334,9 +358,11 @@
           },
         ],
       })
+      lastSyncPushAt = new Date().toLocaleTimeString()
       status = `Backed up to ${server.url}`
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error'
+      recordSyncError(error, `Backup failed for ${server.url}.`)
       status = `Backup failed for ${server.url}: ${message}`
     } finally {
       backingUpServerId = ''
@@ -344,16 +370,23 @@
   }
 
   function selectNote(note: Note) {
+    const pendingDocumentId = editorDocumentId
+    const hadSaveTimer = Boolean(saveTimer)
     if (saveTimer) {
       clearTimeout(saveTimer)
       saveTimer = null
     }
+    if (hadSaveTimer || hasPendingLocalEditorChange(pendingDocumentId)) {
+      void saveDocument()
+    }
     selectedNoteId = note.id
+    logSyncEvent(`Opened note ${note.title || note.id}`)
     selectedFolderPath = ''
     draftTitle = note.title
     draftPath = note.path
     const document = envelope?.documents.find((item) => item.id === note.documentId)
     advanceSequenceFromDocument(document)
+    editorDocumentId = note.documentId
     editorText = document ? applyUpdates(document).text : ''
     lastSavedEditorText = editorText
     destroyRichEditor()
@@ -793,20 +826,29 @@
     if (editorRenderMode === 'rich') {
       exportRichEditorToMarkdown()
     }
-    if (!selectedNote || !selectedDocument) return
-    if (lastSavedEditorText === editorText) return
+    const note = selectedNote
+    const activeEditorDocumentId = editorDocumentId || note?.documentId || ''
+    const document = envelope?.documents.find((item) => item.id === activeEditorDocumentId) ?? selectedDocument
+    const noteForDocument = notes.find((item) => item.documentId === activeEditorDocumentId) ?? note
+    const previousText = lastSavedEditorText
+    const nextText = editorText
+    if (!noteForDocument || !document || !activeEditorDocumentId) return
+    if (previousText === nextText) return
     const update = {
-      ...createTextDiffUpdate(selectedNote.documentId, services.clientId, sequence++, lastSavedEditorText, editorText, selectedDocument),
+      ...createTextDiffUpdate(activeEditorDocumentId, services.clientId, sequence++, previousText, nextText, document),
       id: createRuntimeId('update'),
       createdAt: new Date().toISOString(),
     }
     await queueOperation(services, { kind: 'append_document_update', update })
     await refreshQueuedOperationCount()
     envelope = await services.cache.loadEnvelope()
-    lastSavedEditorText = editorText
-    const broadcasted = services.documentUpdates.publishUpdate(selectedNote.documentId, update)
+    if (editorDocumentId === activeEditorDocumentId) {
+      lastSavedEditorText = nextText
+    }
+    const broadcasted = services.documentUpdates.publishUpdate(activeEditorDocumentId, update)
+    logSyncEvent(`Queued edit ${update.id} for ${noteForDocument.title || noteForDocument.id}`)
     scheduleRemoteFlush()
-    services.presence.publishCursor(selectedNote.documentId, editorElement?.selectionStart ?? editorText.length)
+    services.presence.publishCursor(activeEditorDocumentId, editorElement?.selectionStart ?? nextText.length)
     status = isLocalRuntime ? 'Saved locally' : broadcasted ? 'Document shared live' : 'Document queued for sync'
   }
 
@@ -819,11 +861,12 @@
   }
 
   async function flushPendingEditorSave() {
+    const hadSaveTimer = Boolean(saveTimer)
     if (saveTimer) {
       clearTimeout(saveTimer)
       saveTimer = null
-      await saveDocument()
     }
+    if (hadSaveTimer || hasPendingLocalEditorChange(editorDocumentId)) await saveDocument()
   }
 
   function scheduleRemoteFlush() {
@@ -834,14 +877,17 @@
     if (flushTimer) clearTimeout(flushTimer)
     flushTimer = setTimeout(async () => {
       flushTimer = null
+      lastSyncAttemptAt = new Date().toLocaleTimeString()
       const activeDocumentId = selectedNote?.documentId
       const shouldProtectActiveEditor = document.activeElement === editorElement && (Boolean(saveTimer) || hasPendingLocalEditorChange())
       if (shouldProtectActiveEditor) {
+        logSyncEvent('Deferred remote sync while the editor has local input')
         scheduleRemoteFlush()
         return
       }
       try {
         envelope = await flushQueuedOperations(services)
+        lastSyncPushAt = new Date().toLocaleTimeString()
         await refreshQueuedOperationCount()
         if (activeDocumentId) {
           const note = notes.find((item) => item.documentId === activeDocumentId)
@@ -851,7 +897,8 @@
           }
         }
         status = 'Synced'
-      } catch {
+      } catch (error) {
+        recordSyncError(error, 'Could not flush queued edits to the server.')
         status = 'Offline, saving locally'
       }
     }, 800)
@@ -859,6 +906,8 @@
 
   async function applyRemoteDocumentUpdate(update: CrdtUpdate) {
     if (!envelope || update.clientId === services.clientId) return
+    lastRemoteUpdateAt = new Date().toLocaleTimeString()
+    logSyncEvent(`Received collaborator edit ${update.id}`)
     await flushPendingEditorSave()
     envelope = mergeEnvelope(envelope, {
       cursors: envelope.cursors,
@@ -904,6 +953,7 @@
         (richEditor.isFocused && hasPendingLocalEditorChange(documentState.id))
       ) {
         deferredDocumentRefreshId = documentState.id
+        logSyncEvent('Deferred rich document refresh while editing')
         return
       }
       const nextText = applyUpdates(documentState).text
@@ -921,6 +971,7 @@
   }
 
   async function handleEditorBlur() {
+    editorFocused = false
     await saveDocument()
     applyDeferredDocumentRefresh()
   }
@@ -947,7 +998,7 @@
   }
 
   function hasPendingLocalEditorChange(documentId = selectedNote?.documentId) {
-    if (!documentId || selectedNote?.documentId !== documentId) return false
+    if (!documentId || editorDocumentId !== documentId) return false
     return lastSavedEditorText !== editorText
   }
 
@@ -1003,6 +1054,7 @@
       const document = await services.api.get<CrdtDocumentState>(`/api/v1/documents/${documentId}`)
       if (selectedNote?.documentId !== documentId || !canApplyRemoteDocumentRefresh(documentId)) {
         deferredDocumentRefreshId = documentId
+        logSyncEvent('Deferred server document refresh while local editor state is active')
         return
       }
       envelope = mergeEnvelope(envelope, {
@@ -1016,8 +1068,10 @@
         conflicts: [],
       })
       await services.cache.saveEnvelope(envelope)
+      lastDocumentRefreshAt = new Date().toLocaleTimeString()
       refreshSelectedEditorFromEnvelope(documentId)
-    } catch {
+    } catch (error) {
+      recordSyncError(error, 'Could not fetch the selected document from the server.')
       // Some local notes may not exist on the remote yet; queued sync will create them.
     }
   }
@@ -1038,9 +1092,12 @@
       if (queuedOperationCount > 0 || hasQueuedLocalDocumentChange() || shouldProtectEditorSelection()) return
       try {
         envelope = await pullChanges(services)
+        lastSyncPullAt = new Date().toLocaleTimeString()
         refreshSelectedEditorFromEnvelope()
         await refreshSelectedDocumentFromServer()
-      } catch {
+      } catch (error) {
+        lastSyncError = `${new Date().toLocaleTimeString()} - pull fallback failed`
+        console.debug('Remote pull fallback failed', error)
         // Live websocket is the primary path; this fallback can fail quietly offline.
       }
     }, 1200)
@@ -1690,11 +1747,16 @@
         status = 'Rich text editing locally'
         services.presence.publishCursor(selectedNote.documentId, richEditor?.state.selection.from ?? null)
       },
+      onFocus: () => {
+        editorFocused = true
+        markEditorInteraction()
+      },
       onSelectionUpdate: () => {
         markEditorInteraction()
         requestRichActiveStateRefresh()
       },
       onBlur: () => {
+        editorFocused = false
         applyDeferredDocumentRefresh()
       },
       onTransaction: () => {
@@ -2198,7 +2260,7 @@
     on:pointercancel={stopSidebarResize}
   ></div>
 
-  <section class="editor-shell">
+  <section class:editor-focused={editorFocused} class="editor-shell">
     <div class="metadata">
       <div class="note-title-panel">
         {#if selectedNote}
@@ -2364,6 +2426,7 @@
             on:keyup={captureTextSelection}
             on:pointerdown={markEditorInteraction}
             on:pointerup={captureTextSelection}
+            on:focus={() => (editorFocused = true)}
             on:blur={() => void handleEditorBlur()}
             spellcheck="true"
           ></textarea>
@@ -2418,7 +2481,45 @@
             <span>Collaborators</span>
             <strong>{peers.length}</strong>
           </div>
+          <div>
+            <span>Document</span>
+            <strong>{selectedNote?.documentId ?? 'None'}</strong>
+          </div>
+          <div>
+            <span>Client</span>
+            <strong>{services.clientId}</strong>
+          </div>
+          <div>
+            <span>Last attempt</span>
+            <strong>{lastSyncAttemptAt || 'None'}</strong>
+          </div>
+          <div>
+            <span>Last push</span>
+            <strong>{lastSyncPushAt || 'None'}</strong>
+          </div>
+          <div>
+            <span>Last pull</span>
+            <strong>{lastSyncPullAt || 'None'}</strong>
+          </div>
+          <div>
+            <span>Remote update</span>
+            <strong>{lastRemoteUpdateAt || 'None'}</strong>
+          </div>
+          <div>
+            <span>Document refresh</span>
+            <strong>{lastDocumentRefreshAt || 'None'}</strong>
+          </div>
+          <div>
+            <span>Queued docs</span>
+            <strong>{queuedDocumentIds.length}</strong>
+          </div>
         </div>
+        {#if lastSyncError}
+          <div class="note-status-section">
+            <strong>Last sync error</strong>
+            <p>{lastSyncError}</p>
+          </div>
+        {/if}
         <div class="note-status-section">
           <div class="note-status-section-title">
             <strong>Backup targets</strong>

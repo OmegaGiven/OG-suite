@@ -1371,6 +1371,15 @@ textarea:focus {
   outline: none;
 }
 
+.rich-editor-content p {
+  min-height: 1.45em;
+  margin: 0 0 0.82em;
+}
+
+.rich-editor-content p:empty::before {
+  content: '\00a0';
+}
+
 .rich-editor-content > :first-child {
   margin-top: 0;
 }
@@ -1388,6 +1397,15 @@ textarea:focus {
   margin: 0 0 0.65em;
   line-height: 1.18;
   font-weight: 800;
+}
+
+.rich-editor-content h1 + p,
+.rich-editor-content h2 + p,
+.rich-editor-content h3 + p,
+.rich-editor-content h4 + p,
+.rich-editor-content h5 + p,
+.rich-editor-content h6 + p {
+  margin-top: 0.2em;
 }
 
 .rich-editor-content h1,
@@ -1734,6 +1752,14 @@ footer {
 .settings-drawer-header h2,
 .settings-card h3 {
   margin: 0;
+}
+
+.settings-version {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted, var(--og-muted));
+  font-size: 0.76rem;
+  font-weight: 800;
 }
 
 .settings-close {
@@ -2138,6 +2164,10 @@ footer {
     overflow: hidden;
   }
 
+  .editor-shell.editor-focused {
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
   .notes-list {
     position: fixed;
     inset: 0;
@@ -2348,7 +2378,51 @@ footer {
     backdrop-filter: none;
   }
 
+  .editor-shell.editor-focused .metadata {
+    grid-row: 1;
+    grid-column: 1;
+    justify-self: end;
+    width: auto;
+    padding: max(4px, env(safe-area-inset-top)) 4px 0 0;
+    z-index: 25;
+    pointer-events: none;
+  }
+
+  .editor-shell.editor-focused .note-title-panel {
+    width: auto;
+    min-height: 34px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .editor-shell.editor-focused .note-title-panel input,
+  .editor-shell.editor-focused .empty-note-title,
+  .editor-shell.editor-focused .save-indicator {
+    display: none;
+  }
+
+  .editor-shell.editor-focused .metadata .mobile-files-toggle {
+    pointer-events: auto;
+  }
+
+  .editor-shell.editor-focused .toolbar.og-action-bar.wrap {
+    grid-row: 1;
+    grid-column: 1;
+    padding-right: 44px;
+  }
+
+  .editor-shell.editor-focused .editor-workspace,
+  .editor-shell.editor-focused .empty-editor {
+    grid-row: 2;
+    grid-column: 1;
+  }
+
   .toolbar {
+    position: sticky;
+    top: 0;
+    z-index: 24;
     flex: 0 0 auto;
     box-shadow: none;
     backdrop-filter: none;
@@ -2398,12 +2472,15 @@ footer {
     contain: layout paint style;
     height: 100%;
     min-height: 0;
+    max-height: 100%;
     border-bottom: 0;
     overflow: auto;
     overscroll-behavior: contain;
     touch-action: pan-y;
     -webkit-overflow-scrolling: touch;
     box-shadow: none;
+    padding-bottom: calc(var(--space-lg, 16px) + env(safe-area-inset-bottom));
+    scroll-padding-bottom: calc(72px + env(safe-area-inset-bottom));
   }
 
   .rich-editor-host {
@@ -2414,6 +2491,7 @@ footer {
   .rich-editor-content {
     contain: layout paint style;
     min-height: calc(100% + 1px);
+    padding-bottom: calc(var(--space-xl, 24px) + env(safe-area-inset-bottom));
     transform: translateZ(0);
   }
 
