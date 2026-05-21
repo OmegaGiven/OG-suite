@@ -129,6 +129,7 @@
     | { kind: 'folder'; path: string }
     | null = null
   let collapsedFolderPaths: string[] = []
+  let favoriteNoteIds: string[] = loadFavoriteNoteIds()
   let mobileFilesOpen = false
   let sidebarWidth = 380
   let resizingSidebar = false
@@ -1451,6 +1452,19 @@
     return collapsedFolderPaths.includes(normalizeFolderPath(path))
   }
 
+  function toggleFavoriteNote(event: MouseEvent | KeyboardEvent | PointerEvent, noteId: string) {
+    event.preventDefault()
+    event.stopPropagation()
+    favoriteNoteIds = favoriteNoteIds.includes(noteId)
+      ? favoriteNoteIds.filter((id) => id !== noteId)
+      : [...favoriteNoteIds, noteId]
+    saveFavoriteNoteIds()
+  }
+
+  function isFavoriteNote(noteId: string) {
+    return favoriteNoteIds.includes(noteId)
+  }
+
   function handleFolderKey(event: KeyboardEvent, path: string) {
     if (event.key !== 'Enter' && event.key !== ' ') return
     event.preventDefault()
@@ -1521,6 +1535,21 @@
     const stored = localStorage.getItem('og-suite:notes:editor-render-mode')
     if (stored === 'markdown' || stored === 'rich') return stored
     return 'text'
+  }
+
+  function loadFavoriteNoteIds() {
+    if (typeof localStorage === 'undefined') return []
+    try {
+      const stored = JSON.parse(localStorage.getItem('og-suite:notes:favorite-note-ids') ?? '[]')
+      return Array.isArray(stored) ? stored.filter((id): id is string => typeof id === 'string') : []
+    } catch {
+      return []
+    }
+  }
+
+  function saveFavoriteNoteIds() {
+    if (typeof localStorage === 'undefined') return
+    localStorage.setItem('og-suite:notes:favorite-note-ids', JSON.stringify(favoriteNoteIds))
   }
 
   function renderMarkdown(source: string) {
@@ -2011,6 +2040,21 @@
                 on:pointercancel={cancelMobileTreePress}
               >
                 <strong>{note.title}</strong>
+                <span
+                  class:favorited={isFavoriteNote(note.id)}
+                  class="note-favorite"
+                  role="button"
+                  tabindex="0"
+                  aria-label={isFavoriteNote(note.id) ? `Remove ${note.title} from favorites` : `Add ${note.title} to favorites`}
+                  title={isFavoriteNote(note.id) ? 'Remove favorite' : 'Add favorite'}
+                  on:pointerdown={(event) => event.stopPropagation()}
+                  on:click={(event) => toggleFavoriteNote(event, note.id)}
+                  on:keydown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') toggleFavoriteNote(event, note.id)
+                  }}
+                >
+                  {isFavoriteNote(note.id) ? '★' : '☆'}
+                </span>
               </button>
             {/each}
           </div>
@@ -2084,6 +2128,21 @@
                   on:pointercancel={cancelMobileTreePress}
                 >
                   <strong>{note.title}</strong>
+                  <span
+                    class:favorited={isFavoriteNote(note.id)}
+                    class="note-favorite"
+                    role="button"
+                    tabindex="0"
+                    aria-label={isFavoriteNote(note.id) ? `Remove ${note.title} from favorites` : `Add ${note.title} to favorites`}
+                    title={isFavoriteNote(note.id) ? 'Remove favorite' : 'Add favorite'}
+                    on:pointerdown={(event) => event.stopPropagation()}
+                    on:click={(event) => toggleFavoriteNote(event, note.id)}
+                    on:keydown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') toggleFavoriteNote(event, note.id)
+                    }}
+                  >
+                    {isFavoriteNote(note.id) ? '★' : '☆'}
+                  </span>
                 </button>
               {/each}
             {/if}

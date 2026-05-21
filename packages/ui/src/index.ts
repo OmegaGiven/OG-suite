@@ -49,6 +49,7 @@ export const defaultTokens: DesignTokens = {
   colorNav: 'rgba(7, 13, 22, 0.94)',
   shadow: '0 24px 60px rgba(0, 0, 0, 0.28)',
   margin: 16,
+  innerMargin: 8,
   radius: 20,
   density: 'compact',
   fontFamily: '"IBM Plex Sans", "Segoe UI", system-ui, sans-serif',
@@ -100,6 +101,7 @@ export const lightTokens: DesignTokens = {
   colorNav: 'rgba(246, 250, 253, 0.94)',
   shadow: '0 24px 60px rgba(35, 48, 66, 0.16)',
   margin: 16,
+  innerMargin: 8,
   radius: 20,
   density: 'compact',
   fontFamily: '"IBM Plex Sans", "Segoe UI", system-ui, sans-serif',
@@ -214,7 +216,8 @@ export function normalizeTokens(tokens: Partial<DesignTokens>): DesignTokens {
     colorSuccess: typeof tokens.colorSuccess === 'string' ? tokens.colorSuccess : defaultTokens.colorSuccess,
     colorOverlay: typeof tokens.colorOverlay === 'string' ? tokens.colorOverlay : defaultTokens.colorOverlay,
     panelOpacity: clampNumber(tokens.panelOpacity, 0.08, 1, defaultTokens.panelOpacity),
-    margin: clampNumber(tokens.margin, 4, 36, defaultTokens.margin),
+    margin: clampNumber(tokens.margin, 0, 36, defaultTokens.margin),
+    innerMargin: clampNumber(tokens.innerMargin, 0, 28, defaultTokens.innerMargin),
     radius: clampNumber(tokens.radius, 0, 32, defaultTokens.radius),
     density: tokens.density === 'comfortable' ? 'comfortable' : 'compact',
     confirmDelete: tokens.confirmDelete !== false,
@@ -245,6 +248,7 @@ export function tokensToCss(tokens: DesignTokens): string {
   const panelNav = applyColorOpacity(tokens.colorNav, Math.min(tokens.panelOpacity + 0.08, 1))
   const toolSurface = applyColorOpacity(tokens.colorToolBackground, tokens.panelOpacity)
   const actionBarSurface = applyColorOpacity(tokens.colorActionBarBackground, tokens.panelOpacity)
+  const innerMargin = tokens.innerMargin
   return `
     --og-bg: ${tokens.colorBackground};
     --og-bg-gradient: ${tokens.colorBackgroundGradient};
@@ -274,17 +278,19 @@ export function tokensToCss(tokens: DesignTokens): string {
     --og-background-image-opacity: ${tokens.backgroundImageOpacity};
     --og-shadow: ${tokens.shadow};
     --og-margin: ${tokens.margin}px;
+    --og-inner-margin: ${innerMargin}px;
     --og-radius: ${tokens.radius}px;
     --og-card-radius: ${Math.max(tokens.radius - 4, 0)}px;
     --og-field-radius: ${Math.max(tokens.radius - 6, 0)}px;
     --og-control-height: ${tokens.density === 'compact' ? 32 : 40}px;
     --og-font: ${tokens.fontFamily};
     --page-gutter: ${tokens.margin}px;
-    --space-xs: ${Math.round(tokens.margin * 0.35)}px;
-    --space-sm: ${Math.round(tokens.margin * 0.5)}px;
-    --space-md: ${Math.round(tokens.margin * 0.75)}px;
-    --space-lg: ${tokens.margin}px;
-    --space-xl: ${Math.round(tokens.margin * 1.25)}px;
+    --inner-gutter: ${innerMargin}px;
+    --space-xs: ${Math.round(innerMargin * 0.7)}px;
+    --space-sm: ${innerMargin}px;
+    --space-md: ${Math.round(innerMargin * 1.5)}px;
+    --space-lg: ${Math.round(innerMargin * 2)}px;
+    --space-xl: ${Math.round(innerMargin * 2.5)}px;
     --panel-radius: ${tokens.radius}px;
     --card-radius: ${Math.max(tokens.radius - 4, 0)}px;
     --field-radius: ${Math.max(tokens.radius - 6, 0)}px;

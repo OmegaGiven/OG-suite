@@ -28,6 +28,8 @@
   export let onMoveItem: (id: string, path: string) => void | Promise<void> = () => {}
   export let onMoveFolder: (sourcePath: string, targetPath: string) => void | Promise<void> = () => {}
   export let onToggleFolder: (path: string) => void = () => {}
+  export let favoriteItemIds: string[] = []
+  export let onToggleFavorite: ((id: string) => void) | undefined = undefined
 
   let draggedItemId = ''
   let draggedFolderPath = ''
@@ -41,6 +43,7 @@
     return groups
   }, new Map<string, FileNavigatorItem[]>())
   $: collapsedFolderSet = new Set(collapsedFolderPaths.map((path) => normalizeFolderPath(path)))
+  $: favoriteItemSet = new Set(favoriteItemIds)
   $: folderPaths = Array.from(
     new Set([
       ...folders.map((folder) => normalizeFolderPath(folder.path)).filter((path) => path !== '/'),
@@ -106,6 +109,12 @@
     draggedFolderPath = ''
     dragTargetPath = ''
   }
+
+  function toggleFavorite(event: MouseEvent | KeyboardEvent, id: string) {
+    event.preventDefault()
+    event.stopPropagation()
+    onToggleFavorite?.(id)
+  }
 </script>
 
 <div class="shared-file-tree" aria-label={`${itemLabel} folders`}>
@@ -139,6 +148,22 @@
       >
         <span>{item.title}</span>
         {#if item.meta}<small>{item.meta}</small>{/if}
+        {#if onToggleFavorite}
+          <span
+            class:favorited={favoriteItemSet.has(item.id)}
+            class="file-favorite"
+            role="button"
+            tabindex="0"
+            aria-label={favoriteItemSet.has(item.id) ? `Remove ${item.title} from favorites` : `Add ${item.title} to favorites`}
+            title={favoriteItemSet.has(item.id) ? 'Remove favorite' : 'Add favorite'}
+            on:click={(event) => toggleFavorite(event, item.id)}
+            on:keydown={(event) => {
+              if (event.key === 'Enter' || event.key === ' ') toggleFavorite(event, item.id)
+            }}
+          >
+            {favoriteItemSet.has(item.id) ? '★' : '☆'}
+          </span>
+        {/if}
       </button>
     {/each}
   </section>
@@ -196,6 +221,22 @@
           >
             <span>{item.title}</span>
             {#if item.meta}<small>{item.meta}</small>{/if}
+            {#if onToggleFavorite}
+              <span
+                class:favorited={favoriteItemSet.has(item.id)}
+                class="file-favorite"
+                role="button"
+                tabindex="0"
+                aria-label={favoriteItemSet.has(item.id) ? `Remove ${item.title} from favorites` : `Add ${item.title} to favorites`}
+                title={favoriteItemSet.has(item.id) ? 'Remove favorite' : 'Add favorite'}
+                on:click={(event) => toggleFavorite(event, item.id)}
+                on:keydown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') toggleFavorite(event, item.id)
+                }}
+              >
+                {favoriteItemSet.has(item.id) ? '★' : '☆'}
+              </span>
+            {/if}
           </button>
         {/each}
       {/if}
@@ -206,12 +247,16 @@
 <style>
   .shared-file-tree {
     display: grid;
+    align-content: start;
+    grid-auto-rows: max-content;
     gap: 8px;
     min-width: 0;
   }
 
   .folder-group {
     display: grid;
+    align-content: start;
+    grid-auto-rows: max-content;
     gap: 4px;
     min-width: 0;
   }
@@ -254,7 +299,8 @@
 
   .file-row {
     display: grid;
-    grid-template-columns: minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr) auto;
+    column-gap: 8px;
     align-items: center;
   }
 
@@ -275,6 +321,46 @@
   .folder-empty {
     color: var(--muted, var(--og-muted));
     font-size: 11px;
+  }
+
+  .file-row small {
+    grid-column: 1;
+  }
+
+  .file-favorite {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+    align-self: center;
+    justify-self: end;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    border-radius: var(--field-radius, var(--og-field-radius));
+    color: var(--muted, var(--og-muted));
+    font-size: 18px;
+    line-height: 1;
+    opacity: 0;
+    transition: opacity 120ms ease, color 120ms ease, background 120ms ease;
+  }
+
+  .file-row:hover .file-favorite,
+  .file-row:focus-visible .file-favorite,
+  .file-favorite.favorited,
+  .file-favorite:focus-visible {
+    opacity: 1;
+  }
+
+  .file-favorite.favorited {
+    color: var(--accent, var(--og-accent));
+  }
+
+  .file-favorite:hover,
+  .file-favorite:focus-visible {
+    background: color-mix(in srgb, var(--surface-strong, var(--og-surface-strong)) 78%, transparent);
+    color: var(--accent, var(--og-accent));
+    outline: none;
   }
 
   .folder-icon {

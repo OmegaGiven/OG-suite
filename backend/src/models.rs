@@ -301,6 +301,21 @@ pub struct UpdateAppearanceThemeRequest {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppearanceSettings {
+    pub user_id: String,
+    pub workspace_id: String,
+    pub tokens: serde_json::Value,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateAppearanceSettingsRequest {
+    pub tokens: serde_json::Value,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FeedActivityAction {
     NoteCreated,

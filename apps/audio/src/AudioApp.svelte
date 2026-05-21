@@ -84,6 +84,10 @@
   let searchQuery = ''
   let uploadInputElement: HTMLInputElement | null = null
   let handledOpenTargetKey = ''
+  let audioAppElement: HTMLElement | null = null
+  let rightPanelsElement: HTMLElement | null = null
+  let libraryWidth = 340
+  let recorderHeight = 320
 
   $: selectedRecording = recordings.find((recording) => recording.id === selectedRecordingId) ?? recordings[0]
   $: recorderOnly = mode === 'standalone'
@@ -271,6 +275,38 @@
 
   function selectSuiteApp(appId: string) {
     onSuiteAppSelect?.(appId)
+  }
+
+  function startLibraryResize(event: PointerEvent) {
+    if (!audioAppElement) return
+    event.preventDefault()
+    const element = event.currentTarget as HTMLElement
+    element.setPointerCapture(event.pointerId)
+  }
+
+  function resizeLibrary(event: PointerEvent) {
+    if (!audioAppElement || event.buttons !== 1) return
+    const rect = audioAppElement.getBoundingClientRect()
+    const maxWidth = Math.min(560, Math.max(280, rect.width - 420))
+    libraryWidth = Math.round(clamp(event.clientX - rect.left, 260, maxWidth))
+  }
+
+  function startRecorderResize(event: PointerEvent) {
+    if (!rightPanelsElement) return
+    event.preventDefault()
+    const element = event.currentTarget as HTMLElement
+    element.setPointerCapture(event.pointerId)
+  }
+
+  function resizeRecorder(event: PointerEvent) {
+    if (!rightPanelsElement || event.buttons !== 1) return
+    const rect = rightPanelsElement.getBoundingClientRect()
+    const maxHeight = Math.min(520, Math.max(220, rect.height - 220))
+    recorderHeight = Math.round(clamp(event.clientY - rect.top, 220, maxHeight))
+  }
+
+  function clamp(value: number, min: number, max: number) {
+    return Math.min(max, Math.max(min, value))
   }
 
   function triggerUpload() {
@@ -678,129 +714,135 @@
   }
 </script>
 
-<section class:recorder-only={recorderOnly} class="audio-app">
-  <div class="recorder-panel">
-    <div class="recorder-heading">
-      <div class="recorder-heading-actions">
-        <div class:active={recordingState === 'recording'} class="recording-light"></div>
-        {#if mode === 'suite'}
-          <MobileSuiteMenu
-            title="Audio"
-            navItems={suiteNavItems}
-            activeAppId={activeSuiteAppId}
-            onSelectApp={selectSuiteApp}
-            onOpenSettings={onOpenSuiteSettings}
-          >
-            {#if !recorderOnly}
-              <div class="mobile-library-menu">
-                <ActionBar ariaLabel="Recording file actions" className="panel-actions library-action-bar">
-                  <ActionButton icon="search" label="Search" iconOnly on:click={() => searchOpen = !searchOpen} />
-                  <ActionButton icon="new-folder" label="New folder" iconOnly on:click={createFolder} />
-                  <ActionButton icon="upload" label="Upload" iconOnly on:click={triggerUpload} />
-                  <ActionButton icon="rename" label="Rename selected recording" iconOnly disabled={Boolean(selectedFolderPath) || !selectedRecording} on:click={beginRenameSelectedRecording} />
-                  <ActionButton icon="download" label="Download selected recording" iconOnly disabled={Boolean(selectedFolderPath) || !selectedRecording?.assetRef} on:click={downloadSelectedRecording} />
-                  <ActionButton
-                    icon="delete"
-                    label={selectedFolderPath ? 'Delete selected empty folder' : 'Delete selected recording'}
-                    iconOnly
-                    tone="danger"
-                    disabled={selectedFolderPath ? !selectedFolderCanDelete : !selectedRecording}
-                    on:click={deleteSelectedAudioItem}
+<section
+  bind:this={audioAppElement}
+  class:recorder-only={recorderOnly}
+  class="audio-app"
+  style={`--audio-library-width: ${libraryWidth}px; --audio-recorder-height: ${recorderHeight}px;`}
+>
+  <div class="audio-work-panel" bind:this={rightPanelsElement}>
+    <div class="recorder-panel">
+      <div class="recorder-heading">
+        <div class="recorder-heading-actions">
+          <div class:active={recordingState === 'recording'} class="recording-light"></div>
+          {#if mode === 'suite'}
+            <MobileSuiteMenu
+              title="Audio"
+              navItems={suiteNavItems}
+              activeAppId={activeSuiteAppId}
+              onSelectApp={selectSuiteApp}
+              onOpenSettings={onOpenSuiteSettings}
+            >
+              {#if !recorderOnly}
+                <div class="mobile-library-menu">
+                  <ActionBar ariaLabel="Recording file actions" className="panel-actions library-action-bar">
+                    <ActionButton icon="search" label="Search" iconOnly on:click={() => searchOpen = !searchOpen} />
+                    <ActionButton icon="new-folder" label="New folder" iconOnly on:click={createFolder} />
+                    <ActionButton icon="upload" label="Upload" iconOnly on:click={triggerUpload} />
+                    <ActionButton icon="rename" label="Rename selected recording" iconOnly disabled={Boolean(selectedFolderPath) || !selectedRecording} on:click={beginRenameSelectedRecording} />
+                    <ActionButton icon="download" label="Download selected recording" iconOnly disabled={Boolean(selectedFolderPath) || !selectedRecording?.assetRef} on:click={downloadSelectedRecording} />
+                    <ActionButton
+                      icon="delete"
+                      label={selectedFolderPath ? 'Delete selected empty folder' : 'Delete selected recording'}
+                      iconOnly
+                      tone="danger"
+                      disabled={selectedFolderPath ? !selectedFolderCanDelete : !selectedRecording}
+                      on:click={deleteSelectedAudioItem}
+                    />
+                    <ActionButton icon="refresh" label="Refresh" iconOnly on:click={refreshRecordings} />
+                  </ActionBar>
+                  {#if searchOpen}
+                    <label class="library-search">
+                      <Icon name="search" size={16} />
+                      <input bind:value={searchQuery} type="search" placeholder="Search recordings" aria-label="Search recordings" />
+                    </label>
+                  {/if}
+                  <FileNavigator
+                    folders={navigatorFolders}
+                    items={navigatorItems}
+                    selectedItemId={selectedRecordingId}
+                    {activeFolderPath}
+                    {selectedFolderPath}
+                    {collapsedFolderPaths}
+                    itemLabel="recording"
+                    onSelectItem={selectRecording}
+                    onSelectFolder={selectFolder}
+                    onMoveItem={moveRecording}
+                    onMoveFolder={moveFolder}
+                    onToggleFolder={toggleFolder}
                   />
-                  <ActionButton icon="refresh" label="Refresh" iconOnly on:click={refreshRecordings} />
-                </ActionBar>
-                {#if searchOpen}
-                  <label class="library-search">
-                    <Icon name="search" size={16} />
-                    <input bind:value={searchQuery} type="search" placeholder="Search recordings" aria-label="Search recordings" />
-                  </label>
-                {/if}
-                <FileNavigator
-                  folders={navigatorFolders}
-                  items={navigatorItems}
-                  selectedItemId={selectedRecordingId}
-                  {activeFolderPath}
-                  {selectedFolderPath}
-                  {collapsedFolderPaths}
-                  itemLabel="recording"
-                  onSelectItem={selectRecording}
-                  onSelectFolder={selectFolder}
-                  onMoveItem={moveRecording}
-                  onMoveFolder={moveFolder}
-                  onToggleFolder={toggleFolder}
-                />
-              </div>
-            {/if}
-            <button on:click={syncLocalDrafts} disabled={!localDrafts.some((draft) => !draft.backedUpRecordingId)}>
-              <span>Sync local</span>
-            </button>
-            <button on:click={refreshRecordings}>
-              <span>Refresh</span>
-            </button>
-          </MobileSuiteMenu>
-        {/if}
+                </div>
+              {/if}
+              <button on:click={syncLocalDrafts} disabled={!localDrafts.some((draft) => !draft.backedUpRecordingId)}>
+                <span>Sync local</span>
+              </button>
+              <button on:click={refreshRecordings}>
+                <span>Refresh</span>
+              </button>
+            </MobileSuiteMenu>
+          {/if}
+        </div>
       </div>
-    </div>
 
-    <div class="timer">{formatDuration(elapsedMs)}</div>
+      <div class="timer">{formatDuration(elapsedMs)}</div>
 
-    <button
-      type="button"
-      class:active={recordingState === 'recording' || recordingState === 'paused'}
-      class:paused={recordingState === 'paused'}
-      class="input-meter"
-      style={`--input-level: ${audioLevel}`}
-      aria-label={recordingControlLabel}
-      aria-pressed={recordingState === 'recording'}
-      title={recordingControlLabel}
-      disabled={recordingState === 'syncing'}
-      on:click={activateRecordingIndicator}
-    >
-      <span></span>
-      <Icon name="microphone" size={20} />
-      <span></span>
-    </button>
+      <button
+        type="button"
+        class:active={recordingState === 'recording' || recordingState === 'paused'}
+        class:paused={recordingState === 'paused'}
+        class="input-meter"
+        style={`--input-level: ${audioLevel}`}
+        aria-label={recordingControlLabel}
+        aria-pressed={recordingState === 'recording'}
+        title={recordingControlLabel}
+        disabled={recordingState === 'syncing'}
+        on:click={activateRecordingIndicator}
+      >
+        <span></span>
+        <Icon name="microphone" size={20} />
+        <span></span>
+      </button>
 
-    {#if recordingState !== 'idle'}
-      <ActionBar ariaLabel="Recording controls" align="center" className="recording-controls">
-      {#if recordingState === 'recording'}
-        <ActionButton label="Pause" on:click={pauseRecording} />
-        <ActionButton label="Stop" tone="danger" on:click={stopRecording} />
-      {:else if recordingState === 'paused'}
-        <ActionButton label="Resume" tone="primary" on:click={resumeRecording} />
-        <ActionButton label="Stop" tone="danger" on:click={stopRecording} />
-      {:else}
-        <ActionButton label="Syncing" disabled />
+      {#if recordingState !== 'idle'}
+        <ActionBar ariaLabel="Recording controls" align="center" className="recording-controls">
+        {#if recordingState === 'recording'}
+          <ActionButton label="Pause" on:click={pauseRecording} />
+          <ActionButton label="Stop" tone="danger" on:click={stopRecording} />
+        {:else if recordingState === 'paused'}
+          <ActionButton label="Resume" tone="primary" on:click={resumeRecording} />
+          <ActionButton label="Stop" tone="danger" on:click={stopRecording} />
+        {:else}
+          <ActionButton label="Syncing" disabled />
+        {/if}
+        </ActionBar>
       {/if}
-      </ActionBar>
-    {/if}
 
-    <label class="behavior-row">
-      <input
-        type="checkbox"
-        checked={clearBackedUpLocalAudio}
-        on:change={(event) => updateClearBackedUpLocalAudio(event.currentTarget.checked)}
-      />
-      <span>Remove local audio after backend backup</span>
-    </label>
+      <label class="behavior-row">
+        <input
+          type="checkbox"
+          checked={clearBackedUpLocalAudio}
+          on:change={(event) => updateClearBackedUpLocalAudio(event.currentTarget.checked)}
+        />
+        <span>Remove local audio after backend backup</span>
+      </label>
 
-    <div class="sync-row">
-      <ActionButton label="Sync local recordings" on:click={syncLocalDrafts} disabled={!localDrafts.some((draft) => !draft.backedUpRecordingId)} />
-      <span>{localDrafts.length} local</span>
+      <div class="sync-row">
+        <ActionButton label="Sync local recordings" on:click={syncLocalDrafts} disabled={!localDrafts.some((draft) => !draft.backedUpRecordingId)} />
+        <span>{localDrafts.length} local</span>
+      </div>
+
+      <label class="upload-action">
+        <input bind:this={uploadInputElement} type="file" accept="audio/*,video/*" multiple on:change={uploadMediaFiles} />
+        <span>Upload audio/video</span>
+      </label>
+
+      {#if statusMessage}
+        <p class="status-copy">{statusMessage}</p>
+      {/if}
+      {#if error}
+        <p class="error-copy">{error}</p>
+      {/if}
     </div>
-
-    <label class="upload-action">
-      <input bind:this={uploadInputElement} type="file" accept="audio/*,video/*" multiple on:change={uploadMediaFiles} />
-      <span>Upload audio/video</span>
-    </label>
-
-    {#if statusMessage}
-      <p class="status-copy">{statusMessage}</p>
-    {/if}
-    {#if error}
-      <p class="error-copy">{error}</p>
-    {/if}
-  </div>
 
   {#if !recorderOnly}
     <div class="library-panel">
@@ -841,6 +883,30 @@
         onToggleFolder={toggleFolder}
       />
     </div>
+
+    <div
+      class="audio-panel-resizer vertical"
+      role="separator"
+      aria-label="Resize recordings panel"
+      aria-orientation="vertical"
+      aria-valuemin="260"
+      aria-valuemax="560"
+      aria-valuenow={libraryWidth}
+      on:pointerdown={startLibraryResize}
+      on:pointermove={resizeLibrary}
+    ></div>
+
+    <div
+      class="audio-panel-resizer horizontal"
+      role="separator"
+      aria-label="Resize recorder panel"
+      aria-orientation="horizontal"
+      aria-valuemin="220"
+      aria-valuemax="520"
+      aria-valuenow={recorderHeight}
+      on:pointerdown={startRecorderResize}
+      on:pointermove={resizeRecorder}
+    ></div>
 
     <div class="transcript-panel">
       <div class="panel-title transcript-title">
@@ -884,4 +950,5 @@
       {/if}
     </div>
   {/if}
+  </div>
 </section>

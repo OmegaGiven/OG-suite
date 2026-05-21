@@ -338,6 +338,7 @@ export type DesignTokens = {
   colorNav: string
   shadow: string
   margin: number
+  innerMargin: number
   radius: number
   density: 'compact' | 'comfortable'
   fontFamily: string
@@ -374,6 +375,17 @@ export type UpdateAppearanceThemeRequest = {
   name?: string
   tokens?: DesignTokens
   isShared?: boolean
+}
+
+export type AppearanceSettings = {
+  userId: string
+  workspaceId: string
+  tokens: DesignTokens
+  updatedAt: IsoDateTime
+}
+
+export type UpdateAppearanceSettingsRequest = {
+  tokens: DesignTokens
 }
 
 export type BackgroundGradient = {

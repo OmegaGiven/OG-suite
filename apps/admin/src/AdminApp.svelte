@@ -704,7 +704,7 @@
 
   .admin-users-table th,
   .admin-users-table td {
-    padding: 10px;
+    padding: var(--space-sm, 8px);
     border-bottom: 1px solid color-mix(in srgb, var(--border, var(--og-border)) 72%, transparent);
     text-align: left;
     vertical-align: top;

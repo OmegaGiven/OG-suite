@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { AppearanceTheme, BackgroundGradient, BackgroundGradientPoint, CurrentSession, CustomFont, DesignTokens } from '@og-suite/contracts'
+  import type { AppearanceSettings as ServerAppearanceSettings, AppearanceTheme, BackgroundGradient, BackgroundGradientPoint, CurrentSession, CustomFont, DesignTokens } from '@og-suite/contracts'
   import type { RuntimeServices } from '@og-suite/runtime'
   import Icon from '@og-suite/ui/Icon'
   import {
@@ -43,6 +43,8 @@
   let currentUserId = ''
   let customFonts: CustomFont[] = loadStoredFonts()
   let fontStatus = ''
+  let appearancePersistTimer: number | undefined
+  let serverAppearanceLoaded = false
   $: gradientPointRows = tokens.backgroundGradients.flatMap((gradient) =>
     gradient.points.map((point) => ({ gradientId: gradient.id, point })),
   )
@@ -53,6 +55,7 @@
   ]
 
   onMount(() => {
+    if (serverThemeStorage) void loadServerAppearance()
     if (serverThemeStorage) void loadServerThemes()
   })
 
@@ -63,7 +66,7 @@
 
   function patch(nextPatch: Partial<DesignTokens>) {
     markThemeDirty()
-    onTokensChange(buildAppearancePatch(tokens, nextPatch))
+    commitTokens(buildAppearancePatch(tokens, nextPatch))
   }
 
   function scrollToSection(section: HTMLElement | null) {
@@ -87,7 +90,20 @@
   function applyThemePreset(nextTokens: DesignTokens, mode: ThemeMode, name = mode === 'light' ? 'Light theme' : mode === 'dark' ? 'Dark theme' : 'Custom theme') {
     selectedThemeMode = mode
     themeName = name
-    onTokensChange(normalizeTokens({ ...nextTokens, confirmDelete: tokens.confirmDelete }))
+    commitTokens(normalizeTokens({ ...nextTokens, confirmDelete: tokens.confirmDelete }))
+  }
+
+  function commitTokens(nextTokens: DesignTokens, persist = true) {
+    onTokensChange(nextTokens)
+    if (persist) queueServerAppearanceSave(nextTokens)
+  }
+
+  function queueServerAppearanceSave(nextTokens: DesignTokens) {
+    if (!serverThemeStorage || !services || !serverAppearanceLoaded) return
+    if (appearancePersistTimer) window.clearTimeout(appearancePersistTimer)
+    appearancePersistTimer = window.setTimeout(() => {
+      void saveServerAppearance(nextTokens)
+    }, 450)
   }
 
   async function saveCurrentTheme() {
@@ -186,10 +202,59 @@
     try {
       const session = await services.api.get<CurrentSession>('/api/v1/auth/session')
       currentUserId = session.user.id
-      savedThemes = await services.api.get<SavedAppearanceTheme[]>('/api/v1/appearance/themes')
-      themeStorageStatus = 'Themes loaded from the server.'
+      const localThemes = savedThemes.filter(isLocalTheme)
+      const serverThemes = await services.api.get<SavedAppearanceTheme[]>('/api/v1/appearance/themes')
+      savedThemes = localThemes.length > 0
+        ? await migrateLocalThemesToServer(localThemes, serverThemes)
+        : serverThemes
     } catch (error) {
       themeStorageStatus = error instanceof Error ? error.message : 'Could not load server themes.'
+    }
+  }
+
+  async function loadServerAppearance() {
+    if (!services) return
+    try {
+      const settings = await services.api.get<ServerAppearanceSettings | null>('/api/v1/appearance/settings')
+      serverAppearanceLoaded = true
+      if (settings?.tokens) commitTokens(normalizeTokens(settings.tokens), false)
+    } catch {
+      serverAppearanceLoaded = true
+    }
+  }
+
+  async function saveServerAppearance(nextTokens: DesignTokens) {
+    if (!services) return
+    try {
+      await services.api.put<ServerAppearanceSettings>('/api/v1/appearance/settings', {
+        tokens: normalizeTokens(nextTokens),
+      })
+    } catch (error) {
+      themeStorageStatus = error instanceof Error ? error.message : 'Could not save appearance settings.'
+    }
+  }
+
+  async function migrateLocalThemesToServer(localThemes: SavedAppearanceTheme[], serverThemes: SavedAppearanceTheme[]) {
+    if (!services) return serverThemes
+    const created: SavedAppearanceTheme[] = []
+    const serverFingerprints = new Set(serverThemes.map(themeFingerprint))
+    try {
+      for (const theme of localThemes) {
+        if (serverFingerprints.has(themeFingerprint(theme))) continue
+        created.push(await services.api.post<SavedAppearanceTheme>('/api/v1/appearance/themes', {
+          name: theme.name,
+          tokens: theme.tokens,
+          isShared: shareCurrentTheme,
+        }))
+      }
+      saveSavedThemes(savedThemes.filter((theme) => !isLocalTheme(theme)))
+      if (created.length > 0) {
+        themeStorageStatus = `Moved ${created.length} local theme${created.length === 1 ? '' : 's'} to the server.`
+      }
+      return [...created, ...serverThemes]
+    } catch (error) {
+      themeStorageStatus = error instanceof Error ? error.message : 'Could not move local themes to the server.'
+      return [...localThemes, ...serverThemes]
     }
   }
 
@@ -401,6 +466,14 @@
     }
   }
 
+  function isLocalTheme(theme: SavedAppearanceTheme) {
+    return theme.ownerId === 'local' || theme.workspaceId === 'local'
+  }
+
+  function themeFingerprint(theme: SavedAppearanceTheme) {
+    return `${theme.name.trim().toLowerCase()}::${JSON.stringify(normalizeTokens(theme.tokens))}`
+  }
+
   function tokensMatchPreset(current: DesignTokens, preset: DesignTokens) {
     return JSON.stringify(themeComparable(current)) === JSON.stringify(themeComparable(preset))
   }
@@ -567,13 +640,23 @@
   <section class="settings-card">
     <h3>Shape and Density</h3>
     <label class="settings-field">
-      <span>Margins: {tokens.margin}px</span>
+      <span>Outer margins: {tokens.margin}px</span>
       <input
         type="range"
-        min="4"
+        min="0"
         max="36"
         value={tokens.margin}
         on:input={(event) => patch({ margin: Number(event.currentTarget.value) })}
+      />
+    </label>
+    <label class="settings-field">
+      <span>Inner margins: {tokens.innerMargin}px</span>
+      <input
+        type="range"
+        min="0"
+        max="28"
+        value={tokens.innerMargin}
+        on:input={(event) => patch({ innerMargin: Number(event.currentTarget.value) })}
       />
     </label>
     <label class="settings-field">

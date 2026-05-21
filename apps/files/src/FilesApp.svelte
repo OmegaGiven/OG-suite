@@ -54,6 +54,8 @@
     share: number
   }
 
+  type FileSortMode = 'name-asc' | 'name-desc' | 'size-desc' | 'size-asc'
+
   const metadataKey = 'og-suite:files:metadata'
   const dbName = 'og-suite-files'
   const storeName = 'file-blobs'
@@ -72,6 +74,11 @@
   let error = ''
   let storageEstimate: StorageEstimate | null = null
   let uploadInputElement: HTMLInputElement | null = null
+  let filesAppElement: HTMLElement | null = null
+  let libraryWidth = 340
+  let sortMode: FileSortMode = 'name-asc'
+  let sortMenuOpen = false
+  let favoriteFileIds: string[] = []
 
   $: driveEntries = files.map((file): DriveEntry => ({
     ...file,
@@ -113,7 +120,8 @@
     if (!query) return true
     return [file.name, file.path, file.mimeType, typeLabel(file.mimeType), sourceLabel(file.source)].some((value) => value.toLowerCase().includes(query))
   })
-  $: navigatorItems = filteredFiles.map((file): FileNavigatorItem => ({
+  $: sortedFiles = [...filteredFiles].sort(compareFiles)
+  $: navigatorItems = sortedFiles.map((file): FileNavigatorItem => ({
     id: file.id,
     title: file.name,
     path: file.path,
@@ -128,7 +136,6 @@
   $: totalBytes = allFiles.reduce((sum, file) => sum + file.sizeBytes, 0)
   $: localBytes = files.reduce((sum, file) => sum + file.sizeBytes, 0)
   $: fileTypeBuckets = buildTypeBuckets(allFiles, totalBytes)
-  $: largestFiles = [...allFiles].sort((left, right) => right.sizeBytes - left.sizeBytes).slice(0, 5)
   $: currentFolderFiles = allFiles.filter((file) => normalizeFolderPath(file.path) === activeFolderPath)
   $: browserUsedBytes = storageEstimate?.usage ?? totalBytes
   $: browserQuotaBytes = storageEstimate?.quota ?? 0
@@ -149,17 +156,18 @@
     const raw = localStorage.getItem(metadataKey)
     if (!raw) return
     try {
-      const payload = JSON.parse(raw) as { files?: DriveFile[]; folders?: DriveFolder[]; selectedFileId?: string }
+      const payload = JSON.parse(raw) as { files?: DriveFile[]; folders?: DriveFolder[]; selectedFileId?: string; favoriteFileIds?: string[] }
       files = payload.files ?? []
       folders = payload.folders ?? []
       selectedFileId = payload.selectedFileId ?? files[0]?.id ?? ''
+      favoriteFileIds = Array.isArray(payload.favoriteFileIds) ? payload.favoriteFileIds.filter((id) => typeof id === 'string') : []
     } catch {
       error = 'Files metadata could not be loaded.'
     }
   }
 
   function saveMetadata() {
-    localStorage.setItem(metadataKey, JSON.stringify({ files, folders, selectedFileId }))
+    localStorage.setItem(metadataKey, JSON.stringify({ files, folders, selectedFileId, favoriteFileIds }))
   }
 
   async function refreshLinkedFiles() {
@@ -210,7 +218,56 @@
   function selectFile(id: string) {
     selectedFileId = id
     selectedFolderPath = ''
+    sortMenuOpen = false
     saveMetadata()
+  }
+
+  function toggleFavoriteFile(id: string) {
+    favoriteFileIds = favoriteFileIds.includes(id)
+      ? favoriteFileIds.filter((item) => item !== id)
+      : [...favoriteFileIds, id]
+    saveMetadata()
+  }
+
+  function setSortMode(mode: FileSortMode) {
+    sortMode = mode
+    sortMenuOpen = false
+  }
+
+  function sortModeLabel(mode = sortMode) {
+    if (mode === 'name-desc') return 'Name Z-A'
+    if (mode === 'size-desc') return 'Size large'
+    if (mode === 'size-asc') return 'Size small'
+    return 'Name A-Z'
+  }
+
+  function compareFiles(left: DriveEntry, right: DriveEntry) {
+    if (sortMode === 'size-desc' || sortMode === 'size-asc') {
+      const size = sortMode === 'size-desc'
+        ? right.sizeBytes - left.sizeBytes
+        : left.sizeBytes - right.sizeBytes
+      if (size !== 0) return size
+    }
+    const name = left.name.localeCompare(right.name, undefined, { sensitivity: 'base', numeric: true })
+    return sortMode === 'name-desc' ? -name : name
+  }
+
+  function startLibraryResize(event: PointerEvent) {
+    if (!filesAppElement) return
+    event.preventDefault()
+    const element = event.currentTarget as HTMLElement
+    element.setPointerCapture(event.pointerId)
+  }
+
+  function resizeLibrary(event: PointerEvent) {
+    if (!filesAppElement || event.buttons !== 1) return
+    const rect = filesAppElement.getBoundingClientRect()
+    const maxWidth = Math.min(560, Math.max(280, rect.width - 420))
+    libraryWidth = Math.round(clamp(event.clientX - rect.left, 260, maxWidth))
+  }
+
+  function clamp(value: number, min: number, max: number) {
+    return Math.min(max, Math.max(min, value))
   }
 
   async function uploadFiles(event: Event) {
@@ -526,66 +583,90 @@
   }
 </script>
 
-<section class="files-app">
-  <div class="files-library">
-    <ActionBar ariaLabel="File actions" className="files-action-bar">
-      <ActionButton icon="search" label="Search" iconOnly on:click={() => searchOpen = !searchOpen} />
-      <ActionButton icon="new-folder" label="New folder" iconOnly on:click={createFolder} />
-      <ActionButton icon="upload" label="Upload files" iconOnly on:click={() => uploadInputElement?.click()} />
-      <ActionButton icon="rename" label="Rename selected file" iconOnly disabled={!selectedFile?.canManage} on:click={renameSelectedFile} />
-      <ActionButton icon="download" label="Download selected file" iconOnly disabled={!selectedFile?.canDownload} on:click={downloadSelectedFile} />
-      <ActionButton icon="delete" label="Delete selected file" iconOnly tone="danger" disabled={!selectedFile?.canManage} on:click={deleteSelectedFile} />
-      <ActionButton icon="refresh" label="Refresh files" iconOnly on:click={() => { void refreshLinkedFiles(); void refreshStorageEstimate() }} />
-      {#if mode === 'suite'}
-        <MobileSuiteMenu
-          title="Files"
-          navItems={suiteNavItems}
-          activeAppId={activeSuiteAppId}
-          onSelectApp={selectSuiteApp}
-          onOpenSettings={onOpenSuiteSettings}
-        >
-          <button on:click={() => searchOpen = !searchOpen}>
-            <Icon name="search" size={16} />
-            <span>Search</span>
+<section
+  bind:this={filesAppElement}
+  class="files-app"
+  style={`--files-library-width: ${libraryWidth}px;`}
+>
+  <div class="files-left-column">
+    <div class="files-library">
+      <ActionBar ariaLabel="File actions" className="files-action-bar">
+        <ActionButton icon="search" label="Search" iconOnly on:click={() => searchOpen = !searchOpen} />
+        <ActionButton icon="new-folder" label="New folder" iconOnly on:click={createFolder} />
+        <ActionButton icon="upload" label="Upload files" iconOnly on:click={() => uploadInputElement?.click()} />
+        <div class="files-sort-control">
+          <button
+            class:active={sortMenuOpen}
+            aria-label={`Sort files by ${sortModeLabel()}`}
+            title={`Sort: ${sortModeLabel()}`}
+            on:click={() => sortMenuOpen = !sortMenuOpen}
+          >
+            <Icon name="list" size={18} />
           </button>
-          <button on:click={createFolder}>
-            <Icon name="new-folder" size={16} />
-            <span>New folder</span>
-          </button>
-          <button on:click={() => uploadInputElement?.click()}>
-            <Icon name="upload" size={16} />
-            <span>Upload</span>
-          </button>
-        </MobileSuiteMenu>
+          {#if sortMenuOpen}
+            <div class="files-sort-menu" role="menu">
+              <button class:active={sortMode === 'name-asc'} role="menuitem" on:click={() => setSortMode('name-asc')}>Name A-Z</button>
+              <button class:active={sortMode === 'name-desc'} role="menuitem" on:click={() => setSortMode('name-desc')}>Name Z-A</button>
+              <button class:active={sortMode === 'size-desc'} role="menuitem" on:click={() => setSortMode('size-desc')}>Size large</button>
+              <button class:active={sortMode === 'size-asc'} role="menuitem" on:click={() => setSortMode('size-asc')}>Size small</button>
+            </div>
+          {/if}
+        </div>
+        <ActionButton icon="rename" label="Rename selected file" iconOnly disabled={!selectedFile?.canManage} on:click={renameSelectedFile} />
+        <ActionButton icon="download" label="Download selected file" iconOnly disabled={!selectedFile?.canDownload} on:click={downloadSelectedFile} />
+        <ActionButton icon="delete" label="Delete selected file" iconOnly tone="danger" disabled={!selectedFile?.canManage} on:click={deleteSelectedFile} />
+        <ActionButton icon="refresh" label="Refresh files" iconOnly on:click={() => { void refreshLinkedFiles(); void refreshStorageEstimate() }} />
+        {#if mode === 'suite'}
+          <MobileSuiteMenu
+            title="Files"
+            navItems={suiteNavItems}
+            activeAppId={activeSuiteAppId}
+            onSelectApp={selectSuiteApp}
+            onOpenSettings={onOpenSuiteSettings}
+          >
+            <button on:click={() => searchOpen = !searchOpen}>
+              <Icon name="search" size={16} />
+              <span>Search</span>
+            </button>
+            <button on:click={createFolder}>
+              <Icon name="new-folder" size={16} />
+              <span>New folder</span>
+            </button>
+            <button on:click={() => uploadInputElement?.click()}>
+              <Icon name="upload" size={16} />
+              <span>Upload</span>
+            </button>
+          </MobileSuiteMenu>
+        {/if}
+      </ActionBar>
+
+      <input bind:this={uploadInputElement} class="file-upload-input" type="file" multiple on:change={uploadFiles} />
+
+      {#if searchOpen}
+        <label class="files-search">
+          <Icon name="search" size={16} />
+          <input bind:value={searchQuery} type="search" placeholder="Search files" aria-label="Search files" />
+        </label>
       {/if}
-    </ActionBar>
 
-    <input bind:this={uploadInputElement} class="file-upload-input" type="file" multiple on:change={uploadFiles} />
+      <FileNavigator
+        folders={navigatorFolders}
+        items={navigatorItems}
+        selectedItemId={selectedFileId}
+        {activeFolderPath}
+        {selectedFolderPath}
+        {collapsedFolderPaths}
+        itemLabel="file"
+        onSelectItem={selectFile}
+        onSelectFolder={selectFolder}
+        onMoveItem={moveFile}
+        onMoveFolder={moveFolder}
+        onToggleFolder={toggleFolder}
+        favoriteItemIds={favoriteFileIds}
+        onToggleFavorite={toggleFavoriteFile}
+      />
+    </div>
 
-    {#if searchOpen}
-      <label class="files-search">
-        <Icon name="search" size={16} />
-        <input bind:value={searchQuery} type="search" placeholder="Search files" aria-label="Search files" />
-      </label>
-    {/if}
-
-    <FileNavigator
-      folders={navigatorFolders}
-      items={navigatorItems}
-      selectedItemId={selectedFileId}
-      {activeFolderPath}
-      {selectedFolderPath}
-      {collapsedFolderPaths}
-      itemLabel="file"
-      onSelectItem={selectFile}
-      onSelectFolder={selectFolder}
-      onMoveItem={moveFile}
-      onMoveFolder={moveFolder}
-      onToggleFolder={toggleFolder}
-    />
-  </div>
-
-  <div class="files-main">
     <section class="storage-panel">
       <div class="panel-heading">
         <div>
@@ -616,7 +697,21 @@
         {/if}
       </div>
     </section>
+  </div>
 
+  <div
+    class="files-panel-resizer"
+    role="separator"
+    aria-label="Resize folders panel"
+    aria-orientation="vertical"
+    aria-valuemin="260"
+    aria-valuemax="560"
+    aria-valuenow={libraryWidth}
+    on:pointerdown={startLibraryResize}
+    on:pointermove={resizeLibrary}
+  ></div>
+
+  <div class="files-main">
     <section class="detail-panel">
       <div class="panel-heading">
         <div>
@@ -666,27 +761,6 @@
       {/if}
       {#if error}
         <p class="error-copy">{error}</p>
-      {/if}
-    </section>
-
-    <section class="largest-panel">
-      <div class="panel-heading">
-        <div>
-          <h2>Largest Files</h2>
-          <span>Quick cleanup targets</span>
-        </div>
-      </div>
-      {#if largestFiles.length}
-        <div class="largest-list">
-          {#each largestFiles as file}
-            <button class:active={selectedFileId === file.id} on:click={() => selectFile(file.id)}>
-              <span>{file.name}</span>
-              <small>{formatBytes(file.sizeBytes)} · {typeLabel(file.mimeType)}</small>
-            </button>
-          {/each}
-        </div>
-      {:else}
-        <p class="empty-copy">No files yet.</p>
       {/if}
     </section>
   </div>

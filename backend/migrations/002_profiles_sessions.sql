@@ -48,3 +48,13 @@ create table if not exists appearance_themes (
 
 create index if not exists appearance_themes_workspace_idx on appearance_themes (workspace_id, is_shared);
 create index if not exists appearance_themes_owner_idx on appearance_themes (owner_id);
+
+create table if not exists appearance_settings (
+  user_id text not null,
+  workspace_id text not null,
+  tokens jsonb not null,
+  updated_at timestamptz not null default now(),
+  primary key (user_id, workspace_id)
+);
+
+create index if not exists appearance_settings_workspace_idx on appearance_settings (workspace_id);

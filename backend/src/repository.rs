@@ -93,6 +93,17 @@ pub trait SuiteRepository: Send + Sync {
         request: UpdateAppearanceThemeRequest,
     ) -> AppResult<AppearanceTheme>;
     async fn delete_appearance_theme(&self, id: Uuid, actor_id: &str) -> AppResult<()>;
+    async fn appearance_settings(
+        &self,
+        user_id: &str,
+        workspace_id: &str,
+    ) -> AppResult<Option<AppearanceSettings>>;
+    async fn update_appearance_settings(
+        &self,
+        user_id: &str,
+        workspace_id: &str,
+        request: UpdateAppearanceSettingsRequest,
+    ) -> AppResult<AppearanceSettings>;
 }
 
 #[derive(Clone, Default)]
@@ -114,6 +125,7 @@ struct RepositoryData {
     audio_assets: HashMap<Uuid, String>,
     audio_transcripts: HashMap<Uuid, AudioTranscript>,
     appearance_themes: HashMap<Uuid, AppearanceTheme>,
+    appearance_settings: HashMap<(String, String), AppearanceSettings>,
 }
 
 #[derive(Default, Deserialize, Serialize)]
@@ -129,6 +141,7 @@ struct RepositorySnapshot {
     audio_assets: Vec<(Uuid, String)>,
     audio_transcripts: Vec<AudioTranscript>,
     appearance_themes: Vec<AppearanceTheme>,
+    appearance_settings: Vec<AppearanceSettings>,
 }
 
 impl InMemoryRepository {
@@ -506,6 +519,23 @@ impl InMemoryRepository {
                     })
                     .collect(),
             ),
+            table(
+                "appearance_settings",
+                "Appearance Settings",
+                data.appearance_settings.len(),
+                &["user_id", "workspace_id", "tokens_bytes", "updated_at"],
+                data.appearance_settings
+                    .values()
+                    .map(|settings| {
+                        serde_json::json!({
+                            "user_id": settings.user_id,
+                            "workspace_id": settings.workspace_id,
+                            "tokens_bytes": settings.tokens.to_string().len(),
+                            "updated_at": settings.updated_at,
+                        })
+                    })
+                    .collect(),
+            ),
         ]
     }
 }
@@ -528,6 +558,7 @@ impl From<&RepositoryData> for RepositorySnapshot {
                 .collect(),
             audio_transcripts: data.audio_transcripts.values().cloned().collect(),
             appearance_themes: data.appearance_themes.values().cloned().collect(),
+            appearance_settings: data.appearance_settings.values().cloned().collect(),
         }
     }
 }
@@ -581,6 +612,16 @@ impl From<RepositorySnapshot> for RepositoryData {
                 .appearance_themes
                 .into_iter()
                 .map(|theme| (theme.id, theme))
+                .collect(),
+            appearance_settings: snapshot
+                .appearance_settings
+                .into_iter()
+                .map(|settings| {
+                    (
+                        (settings.user_id.clone(), settings.workspace_id.clone()),
+                        settings,
+                    )
+                })
                 .collect(),
         }
     }
@@ -1303,6 +1344,39 @@ impl SuiteRepository for InMemoryRepository {
         self.persist_snapshot(&data)?;
         Ok(())
     }
+
+    async fn appearance_settings(
+        &self,
+        user_id: &str,
+        workspace_id: &str,
+    ) -> AppResult<Option<AppearanceSettings>> {
+        let data = self.inner.read().await;
+        Ok(data
+            .appearance_settings
+            .get(&(user_id.to_string(), workspace_id.to_string()))
+            .cloned())
+    }
+
+    async fn update_appearance_settings(
+        &self,
+        user_id: &str,
+        workspace_id: &str,
+        request: UpdateAppearanceSettingsRequest,
+    ) -> AppResult<AppearanceSettings> {
+        let settings = AppearanceSettings {
+            user_id: user_id.to_string(),
+            workspace_id: workspace_id.to_string(),
+            tokens: request.tokens,
+            updated_at: Utc::now(),
+        };
+        let mut data = self.inner.write().await;
+        data.appearance_settings.insert(
+            (settings.user_id.clone(), settings.workspace_id.clone()),
+            settings.clone(),
+        );
+        self.persist_snapshot(&data)?;
+        Ok(settings)
+    }
 }
 
 fn compact_if_needed(document: &mut CrdtDocumentState) {
@@ -1561,6 +1635,34 @@ mod tests {
             .updates
             .iter()
             .any(|update| update.payload == "new-local-edit-after-restart"));
+    }
+
+    #[tokio::test]
+    async fn appearance_settings_are_stored_per_user_workspace() {
+        let repo = InMemoryRepository::new();
+        let saved = repo
+            .update_appearance_settings(
+                "user-a",
+                "workspace-a",
+                UpdateAppearanceSettingsRequest {
+                    tokens: serde_json::json!({ "colorBackground": "#111111" }),
+                },
+            )
+            .await
+            .unwrap();
+
+        let loaded = repo
+            .appearance_settings("user-a", "workspace-a")
+            .await
+            .unwrap()
+            .unwrap();
+        let missing = repo
+            .appearance_settings("user-a", "workspace-b")
+            .await
+            .unwrap();
+
+        assert_eq!(loaded.tokens, saved.tokens);
+        assert!(missing.is_none());
     }
 
     #[tokio::test]

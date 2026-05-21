@@ -26,6 +26,10 @@ body {
   background-size: cover;
 }
 
+#app {
+  min-height: 100vh;
+}
+
 button,
 input,
 select,
@@ -323,9 +327,11 @@ button:has(.og-icon) {
   --notes-pane-width: 380px;
   display: grid;
   grid-template-columns: var(--notes-pane-width) 8px minmax(0, 1fr);
-  min-height: 100vh;
+  height: 100vh;
+  min-height: 0;
   background: transparent;
   color: var(--text, var(--og-text));
+  overflow: hidden;
   scrollbar-color: color-mix(in srgb, var(--accent) 62%, #ffffff 10%) transparent;
   scrollbar-width: thin;
 }
@@ -342,6 +348,7 @@ button:has(.og-icon) {
 .notes-list,
 .editor-shell {
   min-width: 0;
+  min-height: 0;
   padding: var(--page-gutter, var(--og-margin));
 }
 
@@ -377,14 +384,17 @@ button:has(.og-icon) {
 
 .notes-list-panel {
   position: relative;
-  min-height: calc(100vh - (var(--page-gutter, var(--og-margin)) * 2));
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - (var(--page-gutter, var(--og-margin)) * 2));
+  min-height: 0;
   padding: var(--space-sm, 8px);
   border: 1px solid var(--border, var(--og-border));
   border-radius: var(--panel-radius, var(--og-radius));
   background: var(--panel-surface, var(--og-surface));
   backdrop-filter: blur(14px);
   box-shadow: var(--shadow, var(--og-shadow));
-  overflow: auto;
+  overflow: hidden;
 }
 
 .notes-menu-close {
@@ -431,7 +441,7 @@ button:has(.og-icon) {
 footer {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-sm, 8px);
 }
 
 .header-actions {
@@ -474,8 +484,8 @@ footer {
 
 .panel-title {
   justify-content: flex-start;
-  margin-bottom: 10px;
-  padding: 6px 8px;
+  margin-bottom: var(--space-sm, 8px);
+  padding: var(--space-xs, 6px) var(--space-sm, 8px);
   border: 1px solid color-mix(in srgb, var(--border) 84%, transparent);
   border-radius: var(--field-radius, var(--og-field-radius));
   background: var(--action-bar-bg, var(--og-action-bar-bg));
@@ -486,8 +496,8 @@ footer {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 4px;
-  margin-bottom: 10px;
-  padding: 4px;
+  margin-bottom: var(--space-sm, 8px);
+  padding: max(3px, calc(var(--space-xs, 6px) * 0.67));
   border: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
   border-radius: var(--field-radius, var(--og-field-radius));
   background: color-mix(in srgb, var(--surface-strong) 46%, transparent);
@@ -517,8 +527,8 @@ footer {
   display: flex;
   align-items: center;
   gap: 7px;
-  margin-bottom: 10px;
-  padding: 0 10px;
+  margin-bottom: var(--space-sm, 8px);
+  padding: 0 var(--space-sm, 8px);
   min-height: var(--og-control-height);
   border: 1px solid color-mix(in srgb, var(--border) 84%, transparent);
   border-radius: var(--field-radius, var(--og-field-radius));
@@ -552,8 +562,8 @@ footer {
   display: grid;
   width: 100%;
   min-height: 52px;
-  margin-bottom: 6px;
-  padding: 8px;
+  margin-bottom: var(--space-xs, 6px);
+  padding: var(--space-sm, 8px);
   border: 1px solid var(--border, var(--og-border));
   border-radius: var(--card-radius, var(--og-card-radius));
   background: var(--surface-subtle, var(--og-surface-subtle));
@@ -572,11 +582,19 @@ footer {
 
 .file-tree {
   display: grid;
+  align-content: start;
+  grid-auto-rows: max-content;
   gap: 4px;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding-right: 2px;
 }
 
 .tree-group {
   display: grid;
+  align-content: start;
+  grid-auto-rows: max-content;
   gap: 2px;
 }
 
@@ -676,8 +694,9 @@ footer {
 }
 
 .file-row {
-  grid-template-columns: none;
-  gap: 7px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: 7px;
   min-height: 34px;
   margin-bottom: 0;
   color: var(--text, var(--og-text));
@@ -689,9 +708,45 @@ footer {
 }
 
 .file-row strong {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.note-favorite {
+  grid-column: 2;
+  align-self: center;
+  justify-self: end;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--field-radius, var(--og-field-radius));
+  color: var(--muted, var(--og-muted));
+  font-size: 18px;
+  line-height: 1;
+  opacity: 0;
+  transition: opacity 120ms ease, color 120ms ease, background 120ms ease;
+}
+
+.file-row:hover .note-favorite,
+.file-row:focus-visible .note-favorite,
+.note-favorite.favorited,
+.note-favorite:focus-visible {
+  opacity: 1;
+}
+
+.note-favorite.favorited {
+  color: var(--accent, var(--og-accent));
+}
+
+.note-favorite:hover,
+.note-favorite:focus-visible {
+  background: color-mix(in srgb, var(--surface-strong) 78%, transparent);
+  color: var(--accent, var(--og-accent));
+  outline: none;
 }
 
 .file-row.dragging {
@@ -711,8 +766,8 @@ footer {
 }
 
 .empty-tree {
-  margin-top: 8px;
-  padding: 10px;
+  margin-top: var(--space-sm, 8px);
+  padding: var(--space-sm, 8px);
   color: var(--muted, var(--og-muted));
   font-size: 0.85rem;
 }
@@ -730,6 +785,9 @@ footer {
   grid-template-rows: auto auto minmax(0, 1fr) auto;
   gap: 0;
   position: relative;
+  height: 100vh;
+  max-height: 100vh;
+  overflow: hidden;
 }
 
 .metadata {
@@ -741,7 +799,7 @@ footer {
 .note-title-panel {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-sm, 8px);
   width: 100%;
   padding: var(--space-sm, 8px);
   border: 1px solid var(--border, var(--og-border));
@@ -781,7 +839,7 @@ footer {
   display: flex;
   flex-wrap: wrap;
   gap: 2px;
-  padding: 6px 8px;
+  padding: var(--space-xs, 6px) var(--space-sm, 8px);
   border: 1px solid color-mix(in srgb, var(--border) 84%, transparent);
   border-bottom: 0;
   border-top-left-radius: var(--panel-radius, var(--og-radius));
@@ -1257,10 +1315,11 @@ footer {
 }
 
 .editor-workspace {
-  min-height: 360px;
+  min-height: 0;
   min-width: 0;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
+  overflow: hidden;
 }
 
 .editor-workspace.markdown-mode {
@@ -1269,8 +1328,10 @@ footer {
 
 textarea {
   width: 100%;
-  min-height: 100%;
+  height: 100%;
+  min-height: 0;
   resize: none;
+  overflow: auto;
   padding: var(--space-md, 12px);
   border: 1px solid color-mix(in srgb, var(--border) 84%, transparent);
   border-radius: var(--panel-radius, var(--og-radius));
@@ -1290,7 +1351,8 @@ textarea:focus {
 .rich-editor-host {
   position: relative;
   min-width: 0;
-  min-height: 100%;
+  height: 100%;
+  min-height: 0;
   overflow: auto;
   border: 1px solid color-mix(in srgb, var(--border) 84%, transparent);
   border-radius: var(--panel-radius, var(--og-radius));
@@ -1485,7 +1547,8 @@ textarea:focus {
 
 .markdown-preview {
   min-width: 0;
-  min-height: 100%;
+  height: 100%;
+  min-height: 0;
   padding: var(--space-md, 12px);
   overflow: auto;
   border: 1px solid color-mix(in srgb, var(--border) 84%, transparent);
@@ -1770,7 +1833,7 @@ footer {
 }
 
 .settings-empty {
-  padding: 8px 0;
+  padding: var(--space-sm, 8px) 0;
   color: var(--muted, var(--og-muted));
   font-size: 0.86rem;
 }
@@ -2083,12 +2146,18 @@ footer {
   }
 
   .notes-list-panel {
+    display: block;
     min-height: 100%;
     max-height: 100%;
     padding: max(10px, env(safe-area-inset-top)) 10px 64px;
     border: 0;
     border-radius: 0;
     overflow: auto;
+  }
+
+  .file-tree {
+    overflow: visible;
+    padding-right: 0;
   }
 
   .notes-mobile-menu-bar {

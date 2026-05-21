@@ -34,6 +34,10 @@ pub fn router(state: AppState) -> Router {
             get(list_appearance_themes).post(create_appearance_theme),
         )
         .route(
+            "/api/v1/appearance/settings",
+            get(get_appearance_settings).put(update_appearance_settings),
+        )
+        .route(
             "/api/v1/appearance/themes/{id}",
             patch(update_appearance_theme).delete(delete_appearance_theme),
         )
@@ -127,6 +131,7 @@ async fn system_version() -> Json<SystemVersion> {
             "audio".to_string(),
             "files".to_string(),
             "appearance-themes".to_string(),
+            "appearance-settings".to_string(),
         ],
         auth_required: true,
         auth_modes: vec!["local-password".to_string()],
@@ -235,6 +240,33 @@ async fn delete_appearance_theme(
         .delete_appearance_theme(id, &session.user.id)
         .await?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+async fn get_appearance_settings(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> AppResult<Json<Option<AppearanceSettings>>> {
+    let session = state.current_session(&bearer_token(&headers)?).await?;
+    Ok(Json(
+        state
+            .repo
+            .appearance_settings(&session.user.id, &session.workspace.id)
+            .await?,
+    ))
+}
+
+async fn update_appearance_settings(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(payload): Json<UpdateAppearanceSettingsRequest>,
+) -> AppResult<Json<AppearanceSettings>> {
+    let session = state.current_session(&bearer_token(&headers)?).await?;
+    Ok(Json(
+        state
+            .repo
+            .update_appearance_settings(&session.user.id, &session.workspace.id, payload)
+            .await?,
+    ))
 }
 
 async fn admin_summary(

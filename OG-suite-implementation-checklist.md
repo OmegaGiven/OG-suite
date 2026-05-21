@@ -152,6 +152,8 @@ Create a low-tech Svelte + Tauri + Rust + Postgres app-suite foundation where ap
   - [x] saved custom themes can be reapplied later
   - [x] themes can be exported as JSON files
   - [x] themes can be imported from JSON files
+  - [x] saved themes persist on the server and local saved themes migrate into the server when a signed-in user opens Appearance
+  - [x] active appearance settings persist per user/workspace on the server so connected Suite apps can load the same site settings
   - [x] accent color picker
   - [x] background color picker
   - [x] text color picker

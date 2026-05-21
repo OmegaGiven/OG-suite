@@ -240,7 +240,7 @@
     align-items: center;
     justify-content: flex-end;
     gap: var(--space-md, 12px);
-    padding: 14px;
+    padding: var(--space-md, 12px);
   }
 
   .feed-hero-actions {
@@ -278,15 +278,15 @@
 
   .feed-section {
     margin-top: var(--space-md, 12px);
-    padding: 12px;
+    padding: var(--space-md, 12px);
   }
 
   .section-heading {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 10px;
-    margin-bottom: 10px;
+    gap: var(--space-sm, 8px);
+    margin-bottom: var(--space-sm, 8px);
   }
 
   .section-heading span,
@@ -300,7 +300,7 @@
   .favorite-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
-    gap: 8px;
+    gap: var(--space-sm, 8px);
   }
 
   .favorite-item,
@@ -314,9 +314,9 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 8px;
+    gap: var(--space-sm, 8px);
     min-height: 54px;
-    padding: 9px;
+    padding: var(--space-sm, 8px);
   }
 
   .favorite-item p {
@@ -367,7 +367,7 @@
 
   .timeline {
     display: grid;
-    gap: 8px;
+    gap: var(--space-sm, 8px);
     margin: 0;
     padding: 0;
     list-style: none;
@@ -377,8 +377,8 @@
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
     align-items: center;
-    gap: 10px;
-    padding: 9px;
+    gap: var(--space-sm, 8px);
+    padding: var(--space-sm, 8px);
   }
 
   .timeline-body {
@@ -397,7 +397,7 @@
     display: flex;
     align-items: baseline;
     justify-content: space-between;
-    gap: 12px;
+    gap: var(--space-md, 12px);
     min-width: 0;
   }
 

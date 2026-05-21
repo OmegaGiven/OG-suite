@@ -1,26 +1,40 @@
 .audio-app {
-  display: grid;
-  grid-template-areas:
-    "library recorder"
-    "library transcript";
-  grid-template-columns: minmax(260px, 0.9fr) minmax(320px, 1.8fr);
-  grid-template-rows: auto minmax(0, 1fr);
-  gap: var(--space-md, 12px);
-  min-height: calc(100vh - 51px);
+  height: calc(100vh - 51px);
+  min-height: 0;
   padding: var(--page-gutter, 16px);
   color: var(--text, var(--og-text));
+  overflow: hidden;
+}
+
+.audio-work-panel {
+  display: grid;
+  grid-template-areas:
+    "library vertical recorder"
+    "library vertical horizontal"
+    "library vertical transcript";
+  grid-template-columns: var(--audio-library-width, 340px) 8px minmax(320px, 1fr);
+  grid-template-rows: var(--audio-recorder-height, 320px) 8px minmax(0, 1fr);
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .audio-app.recorder-only {
-  grid-template-columns: minmax(0, 1fr);
-  min-height: 100vh;
+  height: 100vh;
   padding: 0;
+}
+
+.audio-app.recorder-only .audio-work-panel {
+  display: block;
+  height: 100vh;
 }
 
 .recorder-panel,
 .library-panel,
 .transcript-panel {
   min-width: 0;
+  min-height: 0;
   border: 1px solid var(--border, var(--og-border));
   border-radius: var(--panel-radius, var(--og-panel-radius));
   background: var(--panel-surface, var(--og-surface));
@@ -35,6 +49,7 @@
   justify-content: center;
   gap: var(--space-md, 12px);
   padding: var(--space-sm, 8px);
+  overflow: auto;
 }
 
 .recorder-only .recorder-panel {
@@ -49,7 +64,7 @@
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 12px;
+  gap: var(--space-md, 12px);
 }
 
 .panel-title,
@@ -60,7 +75,7 @@
 .recorder-heading-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-sm, 8px);
   margin-left: auto;
 }
 
@@ -78,7 +93,7 @@
 
 .library-action-bar {
   justify-content: flex-start;
-  margin-bottom: 10px;
+  margin-bottom: var(--space-sm, 8px);
 }
 
 .rename-form {
@@ -213,7 +228,7 @@ h2 {
 .recording-controls {
   display: flex;
   justify-content: center;
-  gap: 8px;
+  gap: var(--space-sm, 8px);
 }
 
 .primary-action,
@@ -271,7 +286,7 @@ button:disabled {
 .behavior-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-sm, 8px);
   color: var(--muted, var(--og-muted));
   font-size: 13px;
 }
@@ -280,8 +295,8 @@ button:disabled {
   display: flex;
   align-items: center;
   gap: 7px;
-  margin-bottom: 10px;
-  padding: 0 10px;
+  margin-bottom: var(--space-sm, 8px);
+  padding: 0 var(--space-sm, 8px);
   min-height: var(--og-control-height, 34px);
   border: 1px solid color-mix(in srgb, var(--border, var(--og-border)) 84%, transparent);
   border-radius: var(--field-radius, var(--og-field-radius));
@@ -307,6 +322,16 @@ button:disabled {
 
 .library-panel {
   grid-area: library;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.library-panel .shared-file-tree {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding-right: 2px;
 }
 
 .mobile-library-menu {
@@ -315,11 +340,67 @@ button:disabled {
 
 .transcript-panel {
   grid-area: transcript;
+  overflow: auto;
 }
 
 .transcript-list {
   display: grid;
   gap: 8px;
+}
+
+.audio-panel-resizer {
+  position: relative;
+  touch-action: none;
+}
+
+.audio-panel-resizer.vertical {
+  grid-area: vertical;
+  min-width: 8px;
+  cursor: col-resize;
+}
+
+.audio-panel-resizer.horizontal {
+  grid-area: horizontal;
+  min-height: 8px;
+  cursor: row-resize;
+}
+
+.audio-panel-resizer::before {
+  content: '';
+  position: absolute;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--border, var(--og-border)) 62%, transparent);
+  transition: background 120ms ease, width 120ms ease, height 120ms ease, left 120ms ease, top 120ms ease;
+}
+
+.audio-panel-resizer.vertical::before {
+  top: 0;
+  bottom: 0;
+  left: 3px;
+  width: 1px;
+}
+
+.audio-panel-resizer.horizontal::before {
+  left: 0;
+  right: 0;
+  top: 3px;
+  height: 1px;
+}
+
+.audio-panel-resizer.vertical:hover::before,
+.audio-panel-resizer.vertical:focus-visible::before,
+.audio-panel-resizer.vertical:active::before {
+  left: 2px;
+  width: 3px;
+  background: color-mix(in srgb, var(--accent, var(--og-accent)) 72%, transparent);
+}
+
+.audio-panel-resizer.horizontal:hover::before,
+.audio-panel-resizer.horizontal:focus-visible::before,
+.audio-panel-resizer.horizontal:active::before {
+  top: 2px;
+  height: 3px;
+  background: color-mix(in srgb, var(--accent, var(--og-accent)) 72%, transparent);
 }
 
 .recording-row {
@@ -342,7 +423,7 @@ button:disabled {
 
 .audio-player {
   width: 100%;
-  margin-bottom: 10px;
+  margin-bottom: var(--space-sm, 8px);
 }
 
 .transcript-segment {
@@ -351,14 +432,14 @@ button:disabled {
   border: 1px solid color-mix(in srgb, var(--border, var(--og-border)) 72%, transparent);
   border-radius: max(6px, calc(var(--panel-radius, var(--og-panel-radius)) - 8px));
   background: var(--panel-surface-subtle, var(--og-surface-subtle));
-  padding: 10px;
+  padding: var(--space-sm, 8px);
 }
 
 .transcript-segment div {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  gap: var(--space-sm, 8px);
 }
 
 .transcript-segment span {
@@ -375,9 +456,22 @@ button:disabled {
     display: flex;
     flex-direction: column;
     gap: 0;
+    height: auto;
     min-height: 100vh;
     padding: 0;
     overflow: hidden;
+  }
+
+  .audio-work-panel {
+    display: flex;
+    flex-direction: column;
+    height: auto;
+    min-height: 100vh;
+    overflow: hidden;
+  }
+
+  .audio-panel-resizer {
+    display: none;
   }
 
   .recorder-panel {
@@ -397,6 +491,11 @@ button:disabled {
     order: 2;
     flex: 1 1 auto;
     overflow: auto;
+  }
+
+  .library-panel .shared-file-tree {
+    overflow: visible;
+    padding-right: 0;
   }
 
   .recorder-panel,
