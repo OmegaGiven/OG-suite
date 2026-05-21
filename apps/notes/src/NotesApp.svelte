@@ -103,6 +103,7 @@
   let richEditor: Editor | null = null
   let richDocumentId = ''
   let richActiveStateVersion = 0
+  let richActiveStateFrame: number | null = null
   let uploadInputElement: HTMLInputElement | null = null
   let textColor = services.tokens.colorText
   let highlightColor = services.tokens.colorWarning
@@ -1674,29 +1675,39 @@
       },
       onUpdate: () => {
         markEditorInteraction()
-        richActiveStateVersion += 1
-        queueMicrotask(updateRichTableToolsFromSelection)
+        requestRichActiveStateRefresh()
         scheduleDocumentSave()
         status = 'Rich text editing locally'
         services.presence.publishCursor(selectedNote.documentId, richEditor?.state.selection.from ?? null)
       },
       onSelectionUpdate: () => {
         markEditorInteraction()
-        richActiveStateVersion += 1
-        queueMicrotask(updateRichTableToolsFromSelection)
+        requestRichActiveStateRefresh()
       },
       onBlur: () => {
         applyDeferredDocumentRefresh()
       },
       onTransaction: () => {
-        richActiveStateVersion += 1
-        queueMicrotask(updateRichTableToolsFromSelection)
+        requestRichActiveStateRefresh()
       },
     })
 
   }
 
+  function requestRichActiveStateRefresh() {
+    if (richActiveStateFrame !== null) return
+    richActiveStateFrame = window.requestAnimationFrame(() => {
+      richActiveStateFrame = null
+      richActiveStateVersion += 1
+      updateRichTableToolsFromSelection()
+    })
+  }
+
   function destroyRichEditor() {
+    if (richActiveStateFrame !== null) {
+      window.cancelAnimationFrame(richActiveStateFrame)
+      richActiveStateFrame = null
+    }
     richEditor?.destroy()
     richEditor = null
     richDocumentId = ''
