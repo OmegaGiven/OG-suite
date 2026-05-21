@@ -736,7 +736,9 @@ impl SuiteRepository for InMemoryRepository {
         let mut document = self.document(id).await?;
         for incoming in updates {
             if document.updates.iter().any(|update| {
-                update.client_id == incoming.client_id && update.sequence == incoming.sequence
+                update.client_id == incoming.client_id
+                    && update.sequence == incoming.sequence
+                    && update.payload == incoming.payload
             }) {
                 continue;
             }
@@ -1327,19 +1329,16 @@ fn merge_document_state(existing: &mut CrdtDocumentState, incoming: CrdtDocument
         .iter()
         .map(|update| update.id)
         .collect::<std::collections::HashSet<_>>();
-    let mut seen_client_sequences = existing
-        .updates
-        .iter()
-        .map(|update| (update.client_id.clone(), update.sequence))
-        .collect::<std::collections::HashSet<_>>();
     for update in incoming.updates {
-        if seen_update_ids.contains(&update.id)
-            || seen_client_sequences.contains(&(update.client_id.clone(), update.sequence))
-        {
+        let duplicate_payload = existing.updates.iter().any(|existing_update| {
+            existing_update.client_id == update.client_id
+                && existing_update.sequence == update.sequence
+                && existing_update.payload == update.payload
+        });
+        if seen_update_ids.contains(&update.id) || duplicate_payload {
             continue;
         }
         seen_update_ids.insert(update.id);
-        seen_client_sequences.insert((update.client_id.clone(), update.sequence));
         existing.updates.push(update);
         existing.version += 1;
     }
@@ -1517,5 +1516,97 @@ mod tests {
         let document = repo.document(server_update.document_id).await.unwrap();
         assert_eq!(document.updates.len(), 1);
         assert_eq!(document.updates[0].id, server_update.id);
+    }
+
+    #[tokio::test]
+    async fn same_client_sequence_with_new_payload_is_not_dropped() {
+        let repo = InMemoryRepository::new();
+        let note = repo
+            .create_note(CreateNoteRequest {
+                title: "Sequence restart".to_string(),
+                path: "/".to_string(),
+                tags: vec![],
+                initial_text: String::new(),
+            })
+            .await
+            .unwrap();
+
+        repo.append_document_updates(
+            note.document_id,
+            vec![IncomingCrdtUpdate {
+                document_id: note.document_id,
+                client_id: "phone".to_string(),
+                sequence: 1,
+                payload: "old-local-edit".to_string(),
+            }],
+        )
+        .await
+        .unwrap();
+        repo.append_document_updates(
+            note.document_id,
+            vec![IncomingCrdtUpdate {
+                document_id: note.document_id,
+                client_id: "phone".to_string(),
+                sequence: 1,
+                payload: "new-local-edit-after-restart".to_string(),
+            }],
+        )
+        .await
+        .unwrap();
+
+        let document = repo.document(note.document_id).await.unwrap();
+        assert_eq!(document.updates.len(), 2);
+        assert!(document.updates.iter().any(|update| update.payload == "old-local-edit"));
+        assert!(document
+            .updates
+            .iter()
+            .any(|update| update.payload == "new-local-edit-after-restart"));
+    }
+
+    #[tokio::test]
+    async fn delayed_create_note_sync_keeps_same_sequence_new_payload() {
+        let repo = InMemoryRepository::new();
+        let note = repo
+            .create_note(CreateNoteRequest {
+                title: "Manual backup".to_string(),
+                path: "/".to_string(),
+                tags: vec![],
+                initial_text: String::new(),
+            })
+            .await
+            .unwrap();
+        let mut local_document = repo.document(note.document_id).await.unwrap();
+        let server_update = CrdtUpdate {
+            id: Uuid::new_v4(),
+            document_id: note.document_id,
+            client_id: "phone".to_string(),
+            sequence: 1,
+            payload: "server-old".to_string(),
+            created_at: Utc::now(),
+        };
+        let local_update = CrdtUpdate {
+            id: Uuid::new_v4(),
+            document_id: note.document_id,
+            client_id: "phone".to_string(),
+            sequence: 1,
+            payload: "phone-new-after-restart".to_string(),
+            created_at: Utc::now(),
+        };
+        local_document.updates.push(local_update.clone());
+
+        repo.append_document_update(server_update.clone())
+            .await
+            .unwrap();
+        repo.apply_sync_operation(SyncOperation::CreateNote {
+            note,
+            document: local_document,
+        })
+        .await
+        .unwrap();
+
+        let document = repo.document(server_update.document_id).await.unwrap();
+        assert_eq!(document.updates.len(), 2);
+        assert!(document.updates.iter().any(|update| update.id == server_update.id));
+        assert!(document.updates.iter().any(|update| update.id == local_update.id));
     }
 }

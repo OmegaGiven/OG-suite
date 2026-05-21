@@ -308,6 +308,14 @@
     return Boolean(documentId && queuedDocumentIds.includes(documentId))
   }
 
+  function advanceSequenceFromDocument(document = selectedDocument) {
+    if (!document) return
+    const maxClientSequence = document.updates.reduce((max, update) => {
+      return update.clientId === services.clientId ? Math.max(max, update.sequence) : max
+    }, 0)
+    sequence = Math.max(sequence, maxClientSequence + 1)
+  }
+
   async function backupSelectedNoteToServer(server: (typeof connectedServers)[number]) {
     if (!selectedNote || !selectedDocument || !server.accessToken) return
     backingUpServerId = server.id
@@ -342,6 +350,7 @@
     draftTitle = note.title
     draftPath = note.path
     const document = envelope?.documents.find((item) => item.id === note.documentId)
+    advanceSequenceFromDocument(document)
     editorText = document ? applyUpdates(document).text : ''
     lastSavedEditorText = editorText
     destroyRichEditor()
@@ -1914,11 +1923,6 @@
           <button class="icon-label-button" aria-label="New note" title="New note" on:click={() => createNote()}>
             <Icon name="new-note" size={18} />
           </button>
-          {#if mode === 'standalone'}
-            <button class="desktop-settings-action icon-label-button" aria-label="Settings" title="Settings" on:click={() => settingsOpen = true}>
-              <Icon name="settings" size={18} />
-            </button>
-          {/if}
           <input
             bind:this={uploadInputElement}
             class="hidden-file-input"

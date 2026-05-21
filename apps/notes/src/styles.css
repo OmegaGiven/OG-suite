@@ -2187,10 +2187,6 @@ footer {
     transform: rotate(-45deg);
   }
 
-  .desktop-settings-action {
-    display: none;
-  }
-
   .panel-title {
     margin-top: 8px;
   }
