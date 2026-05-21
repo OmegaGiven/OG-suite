@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onDestroy } from 'svelte'
+  import { onDestroy, onMount } from 'svelte'
   import type { CustomFont, DesignTokens } from '@og-suite/contracts'
   import { applyUpdates, createDocumentState, createTextDiffUpdate } from '@og-suite/crdt'
   import type { CrdtDocumentState, CrdtUpdate, Note, NoteFolder, PresencePeer, SyncEnvelope, SyncOperation } from '@og-suite/contracts'
@@ -1543,6 +1543,12 @@
     customFonts = loadStoredFonts()
   }
 
+  function updateMobileKeyboardInset() {
+    const viewport = window.visualViewport
+    const inset = viewport ? Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop) : 0
+    document.documentElement.style.setProperty('--notes-keyboard-inset', `${Math.round(inset)}px`)
+  }
+
   function folderMatchesSearch(folder: NoteFolder) {
     const query = searchQuery.trim().toLowerCase()
     if (!query) return true
@@ -1552,6 +1558,22 @@
   start()
 
   window.addEventListener(customFontsChangedEvent, refreshCustomFonts)
+
+  onMount(() => {
+    if ('virtualKeyboard' in navigator) {
+      ;(navigator as Navigator & { virtualKeyboard?: { overlaysContent: boolean } }).virtualKeyboard!.overlaysContent = true
+    }
+    updateMobileKeyboardInset()
+    window.visualViewport?.addEventListener('resize', updateMobileKeyboardInset)
+    window.visualViewport?.addEventListener('scroll', updateMobileKeyboardInset)
+    window.addEventListener('resize', updateMobileKeyboardInset)
+    return () => {
+      document.documentElement.style.removeProperty('--notes-keyboard-inset')
+      window.visualViewport?.removeEventListener('resize', updateMobileKeyboardInset)
+      window.visualViewport?.removeEventListener('scroll', updateMobileKeyboardInset)
+      window.removeEventListener('resize', updateMobileKeyboardInset)
+    }
+  })
 
   onDestroy(() => {
     window.removeEventListener(customFontsChangedEvent, refreshCustomFonts)
