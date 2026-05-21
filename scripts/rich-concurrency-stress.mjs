@@ -129,10 +129,11 @@ async function newRichContext(options) {
 
 async function openRichNote(page, title, mobileLayout = false) {
   await page.goto(appUrl, { waitUntil: 'networkidle' })
+  await openNotesApp(page)
   if (mobileLayout) {
-    await page.getByRole('button', { name: 'Open files' }).click()
+    await page.getByRole('button', { name: 'Open files' }).click({ timeout: 5000 }).catch(() => {})
   }
-  await page.getByRole('button', { name: title, exact: true }).click()
+  await page.locator('button').filter({ hasText: title }).first().click()
   const editor = page.locator('.rich-editor-content')
   await editor.click()
   return editor
@@ -140,10 +141,23 @@ async function openRichNote(page, title, mobileLayout = false) {
 
 async function reloadAndReadRichNote(page, title) {
   await page.reload({ waitUntil: 'networkidle' })
-  await page.getByRole('button', { name: title, exact: true }).click()
+  await openNotesApp(page)
+  await page.locator('button').filter({ hasText: title }).first().click()
   const editor = page.locator('.rich-editor-content')
   await editor.waitFor()
   return editor.innerText()
+}
+
+async function openNotesApp(page) {
+  await page
+    .getByRole('button', { name: 'Notes', exact: true })
+    .click({ timeout: 5000 })
+    .catch(async () => {
+      await page.evaluate(() => {
+        const notesButton = Array.from(document.querySelectorAll('button')).find((button) => button.textContent?.trim() === 'Notes')
+        notesButton?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
+      })
+    })
 }
 
 async function switchModesAndReturnRich(page) {

@@ -787,7 +787,7 @@ dependencies = [
 
 [[package]]
 name = "og-suite-backend"
-version = "0.1.15"
+version = "0.1.16"
 dependencies = [
  "async-trait",
  "axum",

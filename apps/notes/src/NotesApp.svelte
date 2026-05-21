@@ -998,11 +998,13 @@
 
   async function refreshSelectedDocumentFromServer(documentId = selectedNote?.documentId) {
     if (isLocalRuntime) return
-    if (!documentId || !envelope || saveTimer || flushTimer) return
-    if (hasQueuedLocalDocumentChange(documentId) || shouldProtectEditorSelection(documentId)) return
-    if (document.activeElement === editorElement && hasPendingLocalEditorChange(documentId)) return
+    if (!documentId || !envelope || !canApplyRemoteDocumentRefresh(documentId)) return
     try {
       const document = await services.api.get<CrdtDocumentState>(`/api/v1/documents/${documentId}`)
+      if (selectedNote?.documentId !== documentId || !canApplyRemoteDocumentRefresh(documentId)) {
+        deferredDocumentRefreshId = documentId
+        return
+      }
       envelope = mergeEnvelope(envelope, {
         cursors: envelope.cursors,
         apps: [],
@@ -1018,6 +1020,13 @@
     } catch {
       // Some local notes may not exist on the remote yet; queued sync will create them.
     }
+  }
+
+  function canApplyRemoteDocumentRefresh(documentId = selectedNote?.documentId) {
+    if (!documentId || saveTimer || flushTimer) return false
+    if (hasQueuedLocalDocumentChange(documentId) || shouldProtectEditorSelection(documentId)) return false
+    if (document.activeElement === editorElement && hasPendingLocalEditorChange(documentId)) return false
+    return true
   }
 
   function startRemotePullFallback() {

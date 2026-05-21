@@ -3,6 +3,7 @@ import * as Y from 'yjs'
 
 const textKey = 'content'
 const clientSchemaVersion = 2
+const legacySnapshotClientId = 1
 
 export type TextDocumentReplica = {
   id: string
@@ -72,7 +73,7 @@ export function createTextDiffUpdate(
 
 function hydrateYDoc(state: CrdtDocumentState): Y.Doc {
   const doc = createYDoc()
-  applyStoredUpdate(doc, state.snapshot)
+  applySnapshot(doc, state.snapshot)
   for (const update of orderedUpdates(state.updates)) applyStoredUpdate(doc, update.payload)
   return doc
 }
@@ -90,14 +91,23 @@ function orderedUpdates(updates: CrdtUpdate[]) {
   })
 }
 
-function applyStoredUpdate(doc: Y.Doc, payload: string) {
+function applySnapshot(doc: Y.Doc, payload: string) {
   if (!payload) return
   try {
     Y.applyUpdate(doc, decodeUpdate(payload))
   } catch {
     const text = doc.getText(textKey)
-    if (text.length === 0) text.insert(0, payload)
+    if (text.length > 0) return
+    const clientId = doc.clientID
+    doc.clientID = legacySnapshotClientId
+    text.insert(0, payload)
+    doc.clientID = clientId
   }
+}
+
+function applyStoredUpdate(doc: Y.Doc, payload: string) {
+  if (!payload) return
+  Y.applyUpdate(doc, decodeUpdate(payload))
 }
 
 function replaceTextWithMinimalEdit(yText: Y.Text, nextText: string) {

@@ -37,14 +37,27 @@ const mobilePage = await mobile.newPage()
 
 async function openNote(page, mobileLayout = false) {
   await page.goto(appUrl, { waitUntil: 'networkidle' })
+  await openNotesApp(page)
   if (mobileLayout) {
-    await page.getByRole('button', { name: 'Open files' }).click()
+    await page.getByRole('button', { name: 'Open files' }).click({ timeout: 5000 }).catch(() => {})
   }
-  await page.getByRole('button', { name: title, exact: true }).click()
+  await page.locator('button').filter({ hasText: title }).first().click()
   const textarea = page.locator('textarea')
   await textarea.click()
   await page.keyboard.press(process.platform === 'darwin' ? 'Meta+A' : 'Control+A')
   return textarea
+}
+
+async function openNotesApp(page) {
+  await page
+    .getByRole('button', { name: 'Notes', exact: true })
+    .click({ timeout: 5000 })
+    .catch(async () => {
+      await page.evaluate(() => {
+        const notesButton = Array.from(document.querySelectorAll('button')).find((button) => button.textContent?.trim() === 'Notes')
+        notesButton?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
+      })
+    })
 }
 
 const desktopTextarea = await openNote(desktopPage)
