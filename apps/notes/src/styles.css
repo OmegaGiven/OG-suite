@@ -161,7 +161,7 @@ button:has(.og-icon) {
 }
 
 .standalone-auth-error {
-  color: #dc2626;
+  color: var(--danger, var(--og-danger));
   font-size: 13px;
 }
 
@@ -241,7 +241,7 @@ button:has(.og-icon) {
   position: absolute;
   inset: 0;
   border: 0;
-  background: rgb(0 0 0 / 48%);
+  background: var(--overlay, var(--og-overlay));
   cursor: default;
 }
 
@@ -309,7 +309,7 @@ button:has(.og-icon) {
 }
 
 .connected-server-row .danger {
-  color: #dc2626;
+  color: var(--danger, var(--og-danger));
 }
 
 @media (max-width: 720px) {
@@ -463,13 +463,13 @@ footer {
 }
 
 .header-actions button.danger-action {
-  border-color: rgb(220 38 38 / 38%);
-  background: rgb(220 38 38 / 12%);
+  border-color: var(--danger-border, var(--og-danger-border));
+  background: var(--danger-soft, var(--og-danger-soft));
 }
 
 .header-actions button.danger-action:hover:not(:disabled),
 .header-actions button.danger-action:focus-visible {
-  background: rgb(220 38 38 / 18%);
+  background: color-mix(in srgb, var(--danger-soft, var(--og-danger-soft)) 82%, var(--danger, var(--og-danger)) 18%);
 }
 
 .panel-title {
@@ -735,7 +735,7 @@ footer {
 .metadata {
   padding: 0;
   flex-wrap: nowrap;
-  margin-bottom: var(--space-sm, 8px);
+  margin-bottom: 0;
 }
 
 .note-title-panel {
@@ -746,7 +746,7 @@ footer {
   padding: var(--space-sm, 8px);
   border: 1px solid var(--border, var(--og-border));
   border-radius: var(--panel-radius, var(--og-radius));
-  background: var(--panel-surface, var(--og-surface));
+  background: var(--inner-panel-bg, var(--og-panel-bg));
   box-shadow: var(--shadow, var(--og-shadow));
   backdrop-filter: blur(14px);
 }
@@ -849,7 +849,7 @@ footer {
 }
 
 .text-color-glyph {
-  color: #ff6f61;
+  color: var(--danger, var(--og-danger));
 }
 
 .highlight-glyph {
@@ -860,8 +860,8 @@ footer {
   justify-content: center;
   padding: 1px 4px;
   border-radius: 3px;
-  background: #ffd966;
-  color: #071019;
+  background: var(--warning, var(--og-warning));
+  color: var(--text-inverse, var(--og-text-inverse));
 }
 
 .toolbar button {
@@ -1077,20 +1077,20 @@ footer {
 }
 
 .save-indicator.saved {
-  color: #35d07f;
+  color: var(--success, var(--og-success));
 }
 
 .save-indicator.pending {
-  color: #f2c94c;
+  color: var(--warning, var(--og-warning));
 }
 
 .save-indicator.syncing {
-  color: #f2c94c;
+  color: var(--warning, var(--og-warning));
   animation: save-indicator-pulse 920ms ease-in-out infinite;
 }
 
 .save-indicator.offline {
-  color: #f26d6d;
+  color: var(--danger, var(--og-danger));
 }
 
 @keyframes save-indicator-pulse {
@@ -1119,7 +1119,7 @@ footer {
   position: absolute;
   inset: 0;
   border: 0;
-  background: rgb(0 0 0 / 48%);
+  background: var(--overlay, var(--og-overlay));
   backdrop-filter: blur(10px);
 }
 
@@ -1227,7 +1227,7 @@ footer {
 }
 
 .note-status-server-row.active strong {
-  color: #35d07f;
+  color: var(--success, var(--og-success));
 }
 
 .note-status-server-row > div {
@@ -1573,9 +1573,9 @@ textarea:focus {
 
 .danger,
 .danger-action {
-  border-color: rgb(220 38 38 / 38%);
-  background: rgb(220 38 38 / 12%);
-  color: #ffb4a8;
+  border-color: var(--danger-border, var(--og-danger-border));
+  background: var(--danger-soft, var(--og-danger-soft));
+  color: var(--danger, var(--og-danger));
 }
 
 footer {
@@ -1633,7 +1633,7 @@ footer {
   position: fixed;
   inset: 0;
   z-index: 2147483300;
-  background: rgba(3, 7, 12, 0.34);
+  background: var(--overlay, var(--og-overlay));
   backdrop-filter: blur(3px);
 }
 
@@ -2263,7 +2263,8 @@ footer {
     z-index: 20;
     flex: 0 0 auto;
     padding-top: max(6px, env(safe-area-inset-top));
-    padding-bottom: 4px;
+    padding-bottom: 0;
+    margin-bottom: 0;
     background: transparent;
     backdrop-filter: blur(14px);
   }
@@ -2275,6 +2276,7 @@ footer {
   .note-title-panel {
     border-radius: 0;
     min-height: 50px;
+    border-bottom: 0;
   }
 
   .toolbar.og-action-bar.wrap {
@@ -2283,6 +2285,9 @@ footer {
     overflow-y: hidden;
     -webkit-overflow-scrolling: touch;
     scroll-snap-type: x mandatory;
+    border-top: 0;
+    border-top-left-radius: 0;
+    border-top-right-radius: 0;
     padding-bottom: 4px;
     scrollbar-width: none;
   }

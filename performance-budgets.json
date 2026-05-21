@@ -1,0 +1,45 @@
+{
+  "memoryTargets": {
+    "lowEndPhoneMb": 256,
+    "slowDesktopMb": 384,
+    "notesEditorIdleMb": 160,
+    "audioRecorderIdleMb": 128
+  },
+  "rules": {
+    "avoidIdleAnimation": true,
+    "avoidDecorativeGpuEffects": true,
+    "preferCssAndStaticLayoutOverCanvas": true
+  },
+  "apps": {
+    "audio": {
+      "dist": "apps/audio/dist",
+      "required": true,
+      "maxInitialJsBytes": 180000,
+      "maxInitialJsGzipBytes": 60000,
+      "maxInitialCssBytes": 50000,
+      "maxInitialCssGzipBytes": 12000,
+      "maxInitialAssetBytes": 260000,
+      "maxInitialAssetGzipBytes": 80000
+    },
+    "notes": {
+      "dist": "apps/notes/dist",
+      "required": true,
+      "maxInitialJsBytes": 850000,
+      "maxInitialJsGzipBytes": 275000,
+      "maxInitialCssBytes": 70000,
+      "maxInitialCssGzipBytes": 12000,
+      "maxInitialAssetBytes": 950000,
+      "maxInitialAssetGzipBytes": 300000
+    },
+    "suite": {
+      "dist": "apps/suite/dist",
+      "required": true,
+      "maxInitialJsBytes": 950000,
+      "maxInitialJsGzipBytes": 300000,
+      "maxInitialCssBytes": 120000,
+      "maxInitialCssGzipBytes": 20000,
+      "maxInitialAssetBytes": 1100000,
+      "maxInitialAssetGzipBytes": 340000
+    }
+  }
+}

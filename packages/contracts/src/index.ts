@@ -314,6 +314,8 @@ export type DesignTokens = {
   backgroundImage: string
   backgroundImageOpacity: number
   panelOpacity: number
+  colorSection: string
+  colorPanel: string
   colorSurface: string
   colorSurfaceSubtle: string
   colorSurfaceStrong: string
@@ -321,10 +323,17 @@ export type DesignTokens = {
   colorActionBarBackground: string
   colorText: string
   colorMuted: string
+  colorTextInverse: string
   colorAccent: string
   colorAccentSoft: string
   colorAccentBorder: string
   colorAccentContrast: string
+  colorDanger: string
+  colorDangerSoft: string
+  colorDangerBorder: string
+  colorWarning: string
+  colorSuccess: string
+  colorOverlay: string
   colorBorder: string
   colorNav: string
   shadow: string

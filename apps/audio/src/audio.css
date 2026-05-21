@@ -131,8 +131,8 @@ h2 {
 }
 
 .recording-light.active {
-  background: #ef4444;
-  box-shadow: 0 0 0 5px rgb(239 68 68 / 18%);
+  background: var(--danger, var(--og-danger));
+  box-shadow: 0 0 0 5px var(--danger-soft, var(--og-danger-soft));
 }
 
 .timer {
@@ -258,9 +258,9 @@ h2 {
 }
 
 .danger-action {
-  border-color: rgb(220 38 38 / 38%);
-  background: rgb(220 38 38 / 12%);
-  color: #b91c1c;
+  border-color: var(--danger-border, var(--og-danger-border));
+  background: var(--danger-soft, var(--og-danger-soft));
+  color: var(--danger, var(--og-danger));
 }
 
 button:disabled {
@@ -367,7 +367,7 @@ button:disabled {
 }
 
 .error-copy {
-  color: #b91c1c;
+  color: var(--danger, var(--og-danger));
 }
 
 @media (max-width: 760px) {

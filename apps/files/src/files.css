@@ -216,7 +216,7 @@
 }
 
 .error-copy {
-  color: #b91c1c;
+  color: var(--danger, var(--og-danger));
 }
 
 @media (max-width: 900px) {

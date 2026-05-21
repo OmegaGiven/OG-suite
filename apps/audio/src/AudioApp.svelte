@@ -732,11 +732,9 @@
               </div>
             {/if}
             <button on:click={syncLocalDrafts} disabled={!localDrafts.some((draft) => !draft.backedUpRecordingId)}>
-              <Icon name="sync" size={16} />
               <span>Sync local</span>
             </button>
             <button on:click={refreshRecordings}>
-              <Icon name="refresh" size={16} />
               <span>Refresh</span>
             </button>
           </MobileSuiteMenu>
@@ -787,7 +785,7 @@
     </label>
 
     <div class="sync-row">
-      <ActionButton label="Sync local recordings" icon="sync" on:click={syncLocalDrafts} disabled={!localDrafts.some((draft) => !draft.backedUpRecordingId)} />
+      <ActionButton label="Sync local recordings" on:click={syncLocalDrafts} disabled={!localDrafts.some((draft) => !draft.backedUpRecordingId)} />
       <span>{localDrafts.length} local</span>
     </div>
 
@@ -850,7 +848,7 @@
           {#if editingTitle}
             <form class="rename-form" on:submit|preventDefault={saveSelectedRecordingTitle}>
               <input bind:value={titleDraft} aria-label="Recording title" />
-              <ActionButton label="Save" icon="save" type="submit" />
+              <ActionButton label="Save" type="submit" />
               <ActionButton label="Cancel" type="button" on:click={() => editingTitle = false} />
             </form>
           {:else}
@@ -859,9 +857,9 @@
           {#if transcript}<span>{transcript.status}</span>{/if}
         </div>
         <ActionBar ariaLabel="Transcript actions" className="panel-actions">
-          <ActionButton icon="refresh" label="Retranscribe" disabled={!selectedRecording?.assetRef} on:click={retranscribeSelectedRecording} />
-          <ActionButton icon="download" label="VTT" disabled={!transcript?.segments.length} on:click={() => downloadTranscript('vtt')} />
-          <ActionButton icon="download" label="SRT" disabled={!transcript?.segments.length} on:click={() => downloadTranscript('srt')} />
+          <ActionButton label="Retranscribe" disabled={!selectedRecording?.assetRef} on:click={retranscribeSelectedRecording} />
+          <ActionButton label="VTT" disabled={!transcript?.segments.length} on:click={() => downloadTranscript('vtt')} />
+          <ActionButton label="SRT" disabled={!transcript?.segments.length} on:click={() => downloadTranscript('srt')} />
         </ActionBar>
       </div>
       {#if selectedRecording?.assetRef}

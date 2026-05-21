@@ -922,7 +922,7 @@
   }
 
   .admin-error {
-    color: #dc2626;
+    color: var(--danger, var(--og-danger));
   }
 
   .admin-card dl {

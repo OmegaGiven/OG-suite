@@ -118,14 +118,9 @@
 
 <article class="feed-app">
   <section class="feed-hero">
-    <div>
-      <p class="eyebrow">Suite history</p>
-      <h1>Feed</h1>
-    </div>
     <div class="feed-hero-actions">
-      <button class="ghost-button" on:click={() => refreshFeed()} disabled={loading}>
+      <button class="ghost-button icon-only" aria-label="Refresh feed" title="Refresh" on:click={() => refreshFeed()} disabled={loading}>
         <Icon name="refresh" size={16} />
-        <span>Refresh</span>
       </button>
       {#if mode === 'suite'}
         <MobileSuiteMenu
@@ -136,7 +131,6 @@
           onOpenSettings={onOpenSuiteSettings}
         >
           <button on:click={() => refreshFeed()} disabled={loading}>
-            <Icon name="refresh" size={16} />
             <span>Refresh</span>
           </button>
         </MobileSuiteMenu>
@@ -244,7 +238,7 @@
   .feed-hero {
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    justify-content: flex-end;
     gap: var(--space-md, 12px);
     padding: 14px;
   }
@@ -272,21 +266,9 @@
     }
   }
 
-  .eyebrow,
-  h1,
   h2,
   p {
     margin: 0;
-  }
-
-  .eyebrow {
-    color: var(--muted, var(--og-muted));
-    font-size: 12px;
-  }
-
-  h1 {
-    font-size: 22px;
-    font-weight: 720;
   }
 
   h2 {
@@ -353,9 +335,15 @@
   .ghost-button {
     display: inline-flex;
     align-items: center;
+    justify-content: center;
     gap: 6px;
     min-height: 32px;
     padding: 6px 9px;
+  }
+
+  .ghost-button.icon-only {
+    width: 32px;
+    padding: 0;
   }
 
   .icon-action {

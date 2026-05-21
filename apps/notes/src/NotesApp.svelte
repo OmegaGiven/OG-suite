@@ -2,7 +2,7 @@
   import { onDestroy } from 'svelte'
   import type { CustomFont, DesignTokens } from '@og-suite/contracts'
   import { applyUpdates, createDocumentState, createTextDiffUpdate } from '@og-suite/crdt'
-  import type { CrdtDocumentState, CrdtUpdate, Note, NoteFolder, PresencePeer, SyncEnvelope } from '@og-suite/contracts'
+  import type { CrdtDocumentState, CrdtUpdate, Note, NoteFolder, PresencePeer, SyncEnvelope, SyncOperation } from '@og-suite/contracts'
   import { createHttpApiClient, createRuntimeId } from '@og-suite/runtime'
   import type { RuntimeServices } from '@og-suite/runtime'
   import { bootstrapWorkspace, flushQueuedOperations, mergeEnvelope, pullChanges, queueOperation } from '@og-suite/sync'
@@ -84,6 +84,7 @@
   let statusDialogOpen = false
   let syncLog: Array<{ id: string; message: string; at: string }> = []
   let queuedOperationCount = 0
+  let queuedDocumentIds: string[] = []
   let backingUpServerId = ''
   let lastEditorInteractionAt = 0
   let deferredDocumentRefreshId = ''
@@ -103,8 +104,8 @@
   let richDocumentId = ''
   let richActiveStateVersion = 0
   let uploadInputElement: HTMLInputElement | null = null
-  let textColor = '#edf5fb'
-  let highlightColor = '#fff2a8'
+  let textColor = services.tokens.colorText
+  let highlightColor = services.tokens.colorWarning
   let tableMenuOpen = false
   let richTableMenuStyle = ''
   let tocOpen = false
@@ -250,6 +251,7 @@
     await discardLegacyQueuedDocumentUpdates()
     await refreshQueuedOperationCount()
     envelope = await bootstrapWorkspace(services)
+    await refreshQueuedOperationCount()
     if (!isLocalRuntime) await tryFlushAndPull()
     if (notes[0]) selectNote(notes[0])
     if (!isLocalRuntime) startRemotePullFallback()
@@ -277,16 +279,33 @@
     try {
       envelope = await flushQueuedOperations(services)
       await refreshQueuedOperationCount()
-      envelope = await pullChanges(services)
-      refreshSelectedEditorFromEnvelope()
-      await refreshSelectedDocumentFromServer()
+      if (queuedOperationCount === 0 && !shouldProtectEditorSelection()) {
+        envelope = await pullChanges(services)
+        refreshSelectedEditorFromEnvelope()
+        await refreshSelectedDocumentFromServer()
+      }
     } catch {
       status = 'Offline, saving locally'
     }
   }
 
   async function refreshQueuedOperationCount() {
-    queuedOperationCount = (await services.syncQueue.list()).length
+    const queued = await services.syncQueue.list()
+    queuedOperationCount = queued.length
+    queuedDocumentIds = Array.from(
+      new Set(queued.map((item) => documentIdForOperation(item.operation)).filter((documentId): documentId is string => Boolean(documentId))),
+    )
+  }
+
+  function documentIdForOperation(operation: SyncOperation) {
+    if (operation.kind === 'create_note') return operation.note.documentId
+    if (operation.kind === 'update_note_metadata') return operation.note.documentId
+    if (operation.kind === 'append_document_update') return operation.update.documentId
+    return ''
+  }
+
+  function hasQueuedLocalDocumentChange(documentId = selectedNote?.documentId) {
+    return Boolean(documentId && queuedDocumentIds.includes(documentId))
   }
 
   async function backupSelectedNoteToServer(server: (typeof connectedServers)[number]) {
@@ -811,11 +830,12 @@
       }
       try {
         envelope = await flushQueuedOperations(services)
+        await refreshQueuedOperationCount()
         if (activeDocumentId) {
           const note = notes.find((item) => item.documentId === activeDocumentId)
           if (note) {
             selectedNoteId = note.id
-            refreshSelectedEditorFromEnvelope(activeDocumentId)
+            if (!hasQueuedLocalDocumentChange(activeDocumentId)) refreshSelectedEditorFromEnvelope(activeDocumentId)
           }
         }
         status = 'Synced'
@@ -846,6 +866,10 @@
   function refreshSelectedEditorFromEnvelope(documentId = selectedNote?.documentId) {
     if (!documentId || !envelope || saveTimer) return
     if (selectedNote?.documentId !== documentId) return
+    if (hasQueuedLocalDocumentChange(documentId)) {
+      deferredDocumentRefreshId = documentId
+      return
+    }
     if (shouldProtectEditorSelection(documentId)) {
       deferredDocumentRefreshId = documentId
       return
@@ -862,7 +886,11 @@
 
   function applyRichDocumentState(documentState: CrdtDocumentState) {
     if (editorRenderMode === 'rich' && richEditor) {
-      if (shouldProtectEditorSelection(documentState.id) || (richEditor.isFocused && hasPendingLocalEditorChange(documentState.id))) {
+      if (
+        hasQueuedLocalDocumentChange(documentState.id) ||
+        shouldProtectEditorSelection(documentState.id) ||
+        (richEditor.isFocused && hasPendingLocalEditorChange(documentState.id))
+      ) {
         deferredDocumentRefreshId = documentState.id
         return
       }
@@ -959,6 +987,7 @@
   async function refreshSelectedDocumentFromServer(documentId = selectedNote?.documentId) {
     if (isLocalRuntime) return
     if (!documentId || !envelope || saveTimer || flushTimer) return
+    if (hasQueuedLocalDocumentChange(documentId) || shouldProtectEditorSelection(documentId)) return
     if (document.activeElement === editorElement && hasPendingLocalEditorChange(documentId)) return
     try {
       const document = await services.api.get<CrdtDocumentState>(`/api/v1/documents/${documentId}`)
@@ -984,6 +1013,8 @@
     if (pullTimer) clearInterval(pullTimer)
     pullTimer = setInterval(async () => {
       if (!selectedNote || saveTimer || flushTimer) return
+      await refreshQueuedOperationCount()
+      if (queuedOperationCount > 0 || hasQueuedLocalDocumentChange() || shouldProtectEditorSelection()) return
       try {
         envelope = await pullChanges(services)
         refreshSelectedEditorFromEnvelope()

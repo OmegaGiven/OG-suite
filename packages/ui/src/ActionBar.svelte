@@ -118,9 +118,9 @@
 
   .og-action-bar :global(button.danger-action),
   .og-action-bar :global(.danger-action button) {
-    border-color: rgb(220 38 38 / 38%);
-    background: rgb(220 38 38 / 12%);
-    color: #ef6f6f;
+    border-color: var(--danger-border, var(--og-danger-border));
+    background: var(--danger-soft, var(--og-danger-soft));
+    color: var(--danger, var(--og-danger));
   }
 
   .og-action-bar :global(button.primary-action),

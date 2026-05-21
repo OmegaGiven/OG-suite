@@ -420,7 +420,7 @@
     if (hex) return hex
     const rgb = parseRgbColor(trimmed)
     if (rgb) return rgb
-    return parseHexColor(fallback) ?? '#000000'
+    return parseHexColor(fallback) ?? defaultTokens.colorBackground
   }
 
   function parseHexColor(value: string) {
@@ -510,15 +510,12 @@
 
     <div class="settings-actions-inline">
       <button class="icon-label-button" on:click={() => void saveCurrentTheme()}>
-        <Icon name="save" size={18} />
         <span>Save current</span>
       </button>
       <button class="icon-label-button" on:click={() => exportTheme(null)}>
-        <Icon name="download" size={18} />
         <span>Export current</span>
       </button>
       <button class="icon-label-button" on:click={() => themeImportInput?.click()}>
-        <Icon name="upload" size={18} />
         <span>Import</span>
       </button>
       <input
@@ -611,6 +608,24 @@
       <input value={tokens.colorBackground} on:change={(event) => patch({ colorBackground: event.currentTarget.value })} />
     </label>
     <label class="settings-field color-field">
+      <span>Section surfaces</span>
+      <input
+        type="color"
+        value={colorPickerValue(tokens.colorSection, defaultTokens.colorSection)}
+        on:input={(event) => patch({ colorSection: event.currentTarget.value, colorSurface: event.currentTarget.value })}
+      />
+      <input value={tokens.colorSection} on:change={(event) => patch({ colorSection: event.currentTarget.value, colorSurface: event.currentTarget.value })} />
+    </label>
+    <label class="settings-field color-field">
+      <span>Inner panels and tools</span>
+      <input
+        type="color"
+        value={colorPickerValue(tokens.colorPanel, defaultTokens.colorPanel)}
+        on:input={(event) => patch({ colorPanel: event.currentTarget.value, colorToolBackground: event.currentTarget.value })}
+      />
+      <input value={tokens.colorPanel} on:change={(event) => patch({ colorPanel: event.currentTarget.value, colorToolBackground: event.currentTarget.value })} />
+    </label>
+    <label class="settings-field color-field">
       <span>Panels and cards</span>
       <input
         type="color"
@@ -690,7 +705,6 @@
     <div class="settings-section-header">
       <h3>Background Gradients</h3>
       <button class="icon-label-button" on:click={addGradientPoint}>
-        <Icon name="add-list" size={18} />
         <span>Add</span>
       </button>
     </div>
@@ -732,7 +746,6 @@
           </label>
           <div class="point-actions">
             <button class="icon-label-button" on:click={() => activeLocationPicker = activeLocationPicker === row.point.id ? '' : row.point.id}>
-              <Icon name="expand" size={16} />
               <span>{Math.round(row.point.x)}%, {Math.round(row.point.y)}%</span>
             </button>
           </div>
@@ -755,11 +768,9 @@
     <h3>Background Image</h3>
     <div class="settings-actions-inline">
       <button class="icon-label-button" on:click={() => backgroundImageInput?.click()}>
-        <Icon name="upload" size={18} />
         <span>Upload</span>
       </button>
       <button class="icon-label-button" on:click={() => confirmDeleteAction('the background image') && patch({ backgroundImage: '' })}>
-        <Icon name="delete" size={18} />
         <span>Remove</span>
       </button>
       <input
@@ -797,7 +808,6 @@
     </label>
     <div class="settings-actions-inline">
       <button class="icon-label-button" on:click={() => fontImportInput?.click()}>
-        <Icon name="upload" size={18} />
         <span>Import font</span>
       </button>
       <input
@@ -830,11 +840,9 @@
 
   <footer class="settings-actions">
     <button class="icon-label-button" on:click={resetAppearance}>
-      <Icon name="refresh" size={18} />
       <span>Reset</span>
     </button>
     <button class="primary icon-label-button" on:click={onClose}>
-      <Icon name="save" size={18} />
       <span>Done</span>
     </button>
   </footer>

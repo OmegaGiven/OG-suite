@@ -25,6 +25,8 @@ export const defaultTokens: DesignTokens = {
   backgroundImage: '',
   backgroundImageOpacity: 0.35,
   panelOpacity: 0.84,
+  colorSection: 'rgba(22, 32, 45, 0.84)',
+  colorPanel: '#0c1724',
   colorSurface: 'rgba(22, 32, 45, 0.84)',
   colorSurfaceSubtle: 'rgba(255, 255, 255, 0.04)',
   colorSurfaceStrong: 'rgba(8, 13, 22, 0.86)',
@@ -32,10 +34,17 @@ export const defaultTokens: DesignTokens = {
   colorActionBarBackground: '#111d2b',
   colorText: '#edf5fb',
   colorMuted: '#9aabbe',
+  colorTextInverse: '#071019',
   colorAccent: '#41b883',
   colorAccentSoft: 'rgba(65, 184, 131, 0.16)',
   colorAccentBorder: 'rgba(65, 184, 131, 0.7)',
   colorAccentContrast: '#071019',
+  colorDanger: '#ef6f6f',
+  colorDangerSoft: 'rgba(220, 38, 38, 0.12)',
+  colorDangerBorder: 'rgba(220, 38, 38, 0.38)',
+  colorWarning: '#f2c94c',
+  colorSuccess: '#35d07f',
+  colorOverlay: 'rgba(0, 0, 0, 0.48)',
   colorBorder: 'rgba(255, 255, 255, 0.1)',
   colorNav: 'rgba(7, 13, 22, 0.94)',
   shadow: '0 24px 60px rgba(0, 0, 0, 0.28)',
@@ -67,6 +76,8 @@ export const lightTokens: DesignTokens = {
   backgroundImage: '',
   backgroundImageOpacity: 0.35,
   panelOpacity: 0.88,
+  colorSection: 'rgba(255, 255, 255, 0.88)',
+  colorPanel: '#ffffff',
   colorSurface: 'rgba(255, 255, 255, 0.88)',
   colorSurfaceSubtle: 'rgba(255, 255, 255, 0.58)',
   colorSurfaceStrong: 'rgba(235, 242, 249, 0.92)',
@@ -74,10 +85,17 @@ export const lightTokens: DesignTokens = {
   colorActionBarBackground: '#eef5fb',
   colorText: '#162232',
   colorMuted: '#637282',
+  colorTextInverse: '#ffffff',
   colorAccent: '#197a5a',
   colorAccentSoft: 'rgba(25, 122, 90, 0.14)',
   colorAccentBorder: 'rgba(25, 122, 90, 0.58)',
   colorAccentContrast: '#ffffff',
+  colorDanger: '#b91c1c',
+  colorDangerSoft: 'rgba(220, 38, 38, 0.1)',
+  colorDangerBorder: 'rgba(220, 38, 38, 0.3)',
+  colorWarning: '#946200',
+  colorSuccess: '#197a5a',
+  colorOverlay: 'rgba(0, 0, 0, 0.32)',
   colorBorder: 'rgba(22, 34, 50, 0.14)',
   colorNav: 'rgba(246, 250, 253, 0.94)',
   shadow: '0 24px 60px rgba(35, 48, 66, 0.16)',
@@ -184,8 +202,17 @@ export function normalizeTokens(tokens: Partial<DesignTokens>): DesignTokens {
     backgroundGradients,
     backgroundImage: typeof tokens.backgroundImage === 'string' ? tokens.backgroundImage : defaultTokens.backgroundImage,
     backgroundImageOpacity: clampNumber(tokens.backgroundImageOpacity, 0, 1, defaultTokens.backgroundImageOpacity),
+    colorSection: typeof tokens.colorSection === 'string' ? tokens.colorSection : tokens.colorSurface ?? defaultTokens.colorSection,
+    colorPanel: typeof tokens.colorPanel === 'string' ? tokens.colorPanel : tokens.colorToolBackground ?? defaultTokens.colorPanel,
     colorToolBackground: typeof tokens.colorToolBackground === 'string' ? tokens.colorToolBackground : defaultTokens.colorToolBackground,
     colorActionBarBackground: typeof tokens.colorActionBarBackground === 'string' ? tokens.colorActionBarBackground : defaultTokens.colorActionBarBackground,
+    colorTextInverse: typeof tokens.colorTextInverse === 'string' ? tokens.colorTextInverse : tokens.colorAccentContrast ?? defaultTokens.colorTextInverse,
+    colorDanger: typeof tokens.colorDanger === 'string' ? tokens.colorDanger : defaultTokens.colorDanger,
+    colorDangerSoft: typeof tokens.colorDangerSoft === 'string' ? tokens.colorDangerSoft : defaultTokens.colorDangerSoft,
+    colorDangerBorder: typeof tokens.colorDangerBorder === 'string' ? tokens.colorDangerBorder : defaultTokens.colorDangerBorder,
+    colorWarning: typeof tokens.colorWarning === 'string' ? tokens.colorWarning : defaultTokens.colorWarning,
+    colorSuccess: typeof tokens.colorSuccess === 'string' ? tokens.colorSuccess : defaultTokens.colorSuccess,
+    colorOverlay: typeof tokens.colorOverlay === 'string' ? tokens.colorOverlay : defaultTokens.colorOverlay,
     panelOpacity: clampNumber(tokens.panelOpacity, 0.08, 1, defaultTokens.panelOpacity),
     margin: clampNumber(tokens.margin, 4, 36, defaultTokens.margin),
     radius: clampNumber(tokens.radius, 0, 32, defaultTokens.radius),
@@ -210,6 +237,8 @@ export function buildAppearancePatch(tokens: DesignTokens, patch: Partial<Design
 }
 
 export function tokensToCss(tokens: DesignTokens): string {
+  const sectionSurface = applyColorOpacity(tokens.colorSection, tokens.panelOpacity)
+  const innerPanelSurface = applyColorOpacity(tokens.colorPanel, tokens.panelOpacity)
   const panelSurface = applyColorOpacity(tokens.colorSurface, tokens.panelOpacity)
   const panelSurfaceSubtle = applyColorOpacity(tokens.colorSurfaceSubtle, tokens.panelOpacity)
   const panelSurfaceStrong = applyColorOpacity(tokens.colorSurfaceStrong, Math.min(tokens.panelOpacity + 0.08, 1))
@@ -219,6 +248,8 @@ export function tokensToCss(tokens: DesignTokens): string {
   return `
     --og-bg: ${tokens.colorBackground};
     --og-bg-gradient: ${tokens.colorBackgroundGradient};
+    --og-section-bg: ${sectionSurface};
+    --og-panel-bg: ${innerPanelSurface};
     --og-surface: ${panelSurface};
     --og-surface-subtle: ${panelSurfaceSubtle};
     --og-surface-strong: ${panelSurfaceStrong};
@@ -226,10 +257,17 @@ export function tokensToCss(tokens: DesignTokens): string {
     --og-action-bar-bg: ${actionBarSurface};
     --og-text: ${tokens.colorText};
     --og-muted: ${tokens.colorMuted};
+    --og-text-inverse: ${tokens.colorTextInverse};
     --og-accent: ${tokens.colorAccent};
     --og-accent-soft: ${tokens.colorAccentSoft};
     --og-accent-border: ${tokens.colorAccentBorder};
     --og-accent-contrast: ${tokens.colorAccentContrast};
+    --og-danger: ${tokens.colorDanger};
+    --og-danger-soft: ${tokens.colorDangerSoft};
+    --og-danger-border: ${tokens.colorDangerBorder};
+    --og-warning: ${tokens.colorWarning};
+    --og-success: ${tokens.colorSuccess};
+    --og-overlay: ${tokens.colorOverlay};
     --og-border: ${tokens.colorBorder};
     --og-nav-bg: ${panelNav};
     --og-panel-opacity: ${tokens.panelOpacity};
@@ -254,12 +292,20 @@ export function tokensToCss(tokens: DesignTokens): string {
     --accent-soft: ${tokens.colorAccentSoft};
     --accent-border: ${tokens.colorAccentBorder};
     --accent-contrast: ${tokens.colorAccentContrast};
+    --danger: ${tokens.colorDanger};
+    --danger-soft: ${tokens.colorDangerSoft};
+    --danger-border: ${tokens.colorDangerBorder};
+    --warning: ${tokens.colorWarning};
+    --success: ${tokens.colorSuccess};
+    --overlay: ${tokens.colorOverlay};
     --app-font-family: ${tokens.fontFamily};
     --bg: ${tokens.colorBackground};
     --bg-gradient: ${tokens.colorBackgroundGradient};
     --text: ${tokens.colorText};
     --muted: ${tokens.colorMuted};
     --surface: ${panelSurface};
+    --section-bg: ${sectionSurface};
+    --inner-panel-bg: ${innerPanelSurface};
     --surface-subtle: ${panelSurfaceSubtle};
     --surface-strong: ${panelSurfaceStrong};
     --tool-bg: ${toolSurface};

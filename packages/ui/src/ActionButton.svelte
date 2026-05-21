@@ -88,13 +88,13 @@
   }
 
   button.danger-action {
-    border-color: rgb(220 38 38 / 38%);
-    background: rgb(220 38 38 / 12%);
-    color: #ef6f6f;
+    border-color: var(--danger-border, var(--og-danger-border));
+    background: var(--danger-soft, var(--og-danger-soft));
+    color: var(--danger, var(--og-danger));
   }
 
   button.danger-action:hover:not(:disabled),
   button.danger-action:focus-visible {
-    background: rgb(220 38 38 / 18%);
+    background: color-mix(in srgb, var(--danger-soft, var(--og-danger-soft)) 82%, var(--danger, var(--og-danger)) 18%);
   }
 </style>

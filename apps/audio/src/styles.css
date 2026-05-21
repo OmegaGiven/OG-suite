@@ -74,6 +74,6 @@ body {
 }
 
 .standalone-auth-error {
-  color: #dc2626;
+  color: var(--danger, var(--og-danger));
   font-size: 13px;
 }

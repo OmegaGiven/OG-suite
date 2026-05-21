@@ -1,9 +1,53 @@
 # OG Suite Implementation Checklist
 
 ## Summary
-Create a clean Svelte + Tauri + Rust + Postgres app-suite foundation where apps are build-time modules that can run standalone or inside the suite. Implement Notes first as the proof of sync, local-first persistence, and concurrent CRDT editing. Feed replaces the old Dump Catalog concept as the suite history/activity tracker.
+Create a low-tech Svelte + Tauri + Rust + Postgres app-suite foundation where apps are build-time modules that can run standalone or inside the suite. Implement Notes first as the proof of local-first persistence, optional server backup, historical versioning, and concurrent CRDT editing. Feed replaces the old Dump Catalog concept as the suite history/activity tracker.
 
 ## Checklist
+
+### 0. Product Philosophy And System Rules
+- [x] Store the current design philosophy in `design philosophy.md`.
+- [x] Use the preferred frontend/backend stack:
+  - Svelte for web apps
+  - Tauri + Svelte for desktop/mobile app shells
+  - Rust for backend services
+- [x] Keep OG software low-tech by defining explicit performance budgets:
+  - [x] maximum production bundle size per standalone app
+  - [x] maximum initial JS loaded by Suite shell
+  - [x] memory target for slow machines and low-end phones
+  - [x] avoid expensive idle animations, decorative GPU effects, and heavy background rendering
+  - [x] add a lightweight performance smoke test before releases
+  - Done: added `performance-budgets.json` with app bundle limits, memory targets, and low-graphics rules; added `npm run perf:budget` through `scripts/performance-budget.mjs`. Current production build measurements pass: Audio 123.6 KB initial assets / 37.2 KB gzip, Notes 783.9 KB / 238.7 KB gzip, Suite 894.9 KB / 264.7 KB gzip.
+- [x] Audit every app for minimal UI language:
+  - [x] simple buttons use either icon or text, not both, unless the action is genuinely ambiguous
+  - [x] page titles are removed when the nav/menu already identifies the page
+  - [x] self-explanatory tools avoid descriptive helper text
+  - [x] mobile screens prioritize the actual work surface over explanatory chrome
+  - Done: added `docs/minimal-ui-audit.md` and removed the duplicate Feed page title from the Feed app body; desktop Feed refresh is now icon-only while the mobile menu refresh is text-only.
+- [ ] Remediate minimal UI audit findings:
+  - [x] replace remaining Audio transcript/export icon+text actions with text-only or icon-only actions
+  - [x] replace Appearance import/export/save icon+text actions with one consistent treatment
+  - [ ] shorten empty-state helper copy after shared save/connection status exists
+  - [ ] revisit Admin section titles in mobile nav contexts
+  - Done: Audio sync/rename/transcript actions now avoid icon+text duplication, and Appearance theme/font/background/footer actions now use text-only buttons while row actions remain icon-only.
+- [x] Formalize the shared color model:
+  - [x] one app background color token
+  - [x] one section/surface color token
+  - [x] one inner panel/tool/nav color token
+  - [x] no more than three text color tokens outside intentionally colored button text
+  - [x] map existing surface/nav/tool tokens to this model or document why an exception exists
+  - Done: added canonical `colorSection`, `colorPanel`, and `colorTextInverse` design tokens, emitted `--og-section-bg`, `--og-panel-bg`, and `--og-text-inverse` CSS variables, and documented the compatibility path in `docs/appearance-color-model.md`.
+- [x] Audit all apps so every visible color is token-driven from Appearance settings.
+  - Done: added `npm run audit:colors` through `scripts/color-token-audit.mjs` and documented the current 39 literal color lines in `docs/color-token-audit.md`.
+- [x] Remediate color token audit findings:
+  - [x] add semantic danger/warning/success/overlay tokens
+  - [x] replace shared `ActionButton` and `ActionBar` danger literals
+  - [x] replace app-level error/status literals in Admin, Audio, Files, Notes, and Suite
+  - [x] replace Notes editor default text/highlight hard-coded colors with theme-aware defaults
+  - [x] reduce `npm run audit:colors` findings to only token definitions
+  - Done: added `colorDanger`, `colorDangerSoft`, `colorDangerBorder`, `colorWarning`, `colorSuccess`, and `colorOverlay` tokens; moved app/UI status, danger, and overlay colors to CSS variables; `npm run audit:colors` now reports no literal app/UI colors outside tokenized expressions.
+- [ ] Audit all apps so every major section is inside a surface/container div separate from the app background.
+- [ ] Settings surfaces show the current app version/client version and connected server version when available.
 
 ### 1. Repo Foundation
 - [x] Create monorepo structure:
@@ -22,6 +66,8 @@ Create a clean Svelte + Tauri + Rust + Postgres app-suite foundation where apps 
 - [x] Add standalone Svelte + Vite baseline for `apps/notes`.
 - [x] Add Rust backend baseline with health route.
 - [x] Add Postgres connection config and migration runner.
+- [ ] Replace the current durable JSON snapshot repository with a PostgreSQL-backed repository for production data.
+- [ ] Keep the JSON snapshot repository only as a local/dev fallback or documented single-file mode.
 
 ### 2. Shared App Runtime
 - [x] Define `AppManifest` in `packages/runtime`.
@@ -51,6 +97,20 @@ Create a clean Svelte + Tauri + Rust + Postgres app-suite foundation where apps 
   - corner radius including square mode
   - density
   - font stack
+- [ ] Align configurable colors with the three-surface/three-text philosophy:
+  - [ ] background color
+  - [ ] section element color
+  - [ ] inner panel/tool/nav color
+  - [ ] primary text color
+  - [ ] muted text color
+  - [ ] inverse/contrast text color when needed
+- [ ] Extend Appearance coverage to every app surface:
+  - [ ] Feed activity rows and filters
+  - [ ] Files panels and toolbar areas
+  - [x] Notes title/header and editor action surfaces
+  - [ ] Admin tables, cards, dialogs, and tabs
+  - [ ] Suite login/setup/profile menus
+  - Done for Notes: exposed `Section surfaces` and `Inner panels and tools` in Appearance, mapped the note title strip to the inner panel/tool token, and kept legacy panel controls for compatibility.
 - [x] Build compact shell layout for mobile and desktop.
 - [x] Standardize mobile suite navigation:
   - shared hamburger menu component for mobile app/page menus
@@ -114,6 +174,11 @@ Create a clean Svelte + Tauri + Rust + Postgres app-suite foundation where apps 
   - [x] users can remove the background image
 - [x] Add typography settings:
   - [x] font stack selector
+- [x] Add local custom font import for browser/device use.
+- [ ] Persist imported custom fonts to the backend so they can be reused across devices.
+- [ ] Allow admins/users to share imported fonts safely across a workspace.
+- [ ] Add font storage quota and file-type validation for imported font files.
+- [ ] Show the current Suite/client version and server version in Settings.
 
 ### 5. Backend Platform
 - [x] Add Rust API modules for:
@@ -155,6 +220,27 @@ Create a clean Svelte + Tauri + Rust + Postgres app-suite foundation where apps 
   - queue writes offline
   - flush queued writes on reconnect
   - merge remote changes
+- [x] Prefer queued local edits before remote bootstrap/pull so reconnect does not overwrite unsynced local work.
+- [ ] Add cross-app save/connection status control:
+  - [ ] visible in every app that saves or syncs user data
+  - [ ] opens a status pop-up with local save state, server backup state, queue length, recent sync log, and connected servers
+  - [ ] allows users to choose which configured servers receive backup for the current file/item
+  - [ ] clearly separates "saved on this device" from "backed up to server"
+- [ ] Add historical versioning for local/server sync:
+  - [ ] preserve the previous local version before accepting a newer server version
+  - [ ] preserve the previous server version before pushing a newer local version
+  - [ ] expose file/item version history through the save/connection status pop-up
+  - [ ] allow restore/copy from a historical version
+  - [ ] keep audit metadata: source device, server, user, timestamp, and reason
+- [ ] Add conflict policy for non-CRDT assets:
+  - [ ] notes use CRDT merge for body text
+  - [ ] binary files/audio use latest-version plus historical copy
+  - [ ] metadata changes use deterministic merge rules with history
+- [ ] Add tests for local-first reconnect behavior:
+  - [ ] queued local edits push before remote bootstrap
+  - [ ] queued local edits push before periodic pull
+  - [ ] manual backup pushes current local editor text instead of pulling server text first
+  - [ ] server-newer state creates a historical local copy before replacing visible content
 
 ### 7. CRDT Document Layer
 - [x] Add shared CRDT document abstraction in `packages/crdt`.
@@ -206,6 +292,7 @@ Create a clean Svelte + Tauri + Rust + Postgres app-suite foundation where apps 
   - mobile file view closes after selecting a note
   - mobile removes outer layout margins to maximize note-taking space
   - mobile pins the title row and action toolbar to the top while editing
+  - mobile butts the note title row directly against the editor action toolbar with no spacer margin
   - mobile hides status/collaborator footer chrome
   - mobile editor fills all remaining vertical space
   - desktop has a draggable divider to resize the folder panel and editor
@@ -345,7 +432,7 @@ Create a clean Svelte + Tauri + Rust + Postgres app-suite foundation where apps 
 - [x] Confirm Notes runs inside Suite and standalone from the same module.
 
 ### 9. Feed Activity Tracker
-Goal: Feed is the suite-wide public activity timeline. It should show what changed across the suite, who did it, and when it happened, newest to oldest. It also owns a favorites area where users can pin frequently used files, folders, documents, or tools.
+Goal: Feed is the suite-wide public activity timeline and canonical dump surface. It should show what changed across the suite, who did it, and when it happened, newest to oldest. It should also accept notes, voice memos, pictures, videos, and other dumped content, then support metadata parsers and later LLM-assisted tagging for search and categorization. It owns a favorites area where users can pin frequently used files, folders, documents, or tools.
 
 - [x] Rename the old Dump Catalog placeholder to Feed.
 - [x] Update Suite navigation language from Dump Catalog to Feed.
@@ -395,6 +482,13 @@ Goal: Feed is the suite-wide public activity timeline. It should show what chang
   - [ ] filters by app, actor, action type, and file/folder
   - [ ] item details panel for before/after metadata
 - [ ] Keep Feed extensible for future suite actions beyond Notes.
+- [ ] Add canonical dump behavior:
+  - [ ] create quick text dumps directly from Feed
+  - [ ] record or attach voice memos from Feed
+  - [ ] attach pictures and videos from Feed
+  - [ ] route dumped items into Notes, Audio, Files, or future app-owned storage without duplicate data
+  - [ ] add metadata parser hooks for file type, date, title, tags, transcription status, and source app
+  - [ ] add later LLM-assisted tagging/categorization behind an optional local/server-controlled parser setting
 
 ### 10. Audio Recorder
 Goal: Audio is the suite recording app. It should let users record audio, save recordings remotely, generate searchable transcripts, and represent speaker/channel information clearly enough to support meetings, interviews, voice notes, and multi-channel recordings later.
@@ -511,7 +605,84 @@ Goal: Audio is the suite recording app. It should let users record audio, save r
   - [ ] multi-channel transcript renders channel labels
   - [ ] speaker labels render and can be renamed
 
-### 11. Server Profiles, Secure Sync, And Updates
+### 11. Files Drive
+Goal: Files is the suite drive. It should manage user files on the server, show app-specific files from Notes and Audio in grouped sections, expose file hierarchy/search/metadata, and support local-first operation with server backup.
+
+- [x] Define Files manifest and route.
+- [x] Enable Files in Suite navigation.
+- [x] Build initial compact Files UI:
+  - [x] file/folder hierarchy
+  - [x] upload local files into browser storage
+  - [x] show file type, size, created date, and modified date
+  - [x] show browser storage usage estimate
+  - [x] search files
+  - [x] rename, download, delete, and refresh actions
+  - [x] show Notes as linked Markdown files
+  - [x] show Audio recordings under one Audio section
+  - [x] group virtual app-owned files with Drive files in the same navigator
+- [ ] Add backend drive storage:
+  - [ ] drive file metadata table
+  - [ ] drive folder metadata table
+  - [ ] file blob/asset storage on the server
+  - [ ] upload/download/delete/rename/move routes
+  - [ ] folder create/delete/move routes
+  - [ ] workspace/user access checks
+  - [ ] storage quota enforcement
+- [ ] Add local-first Files sync:
+  - [ ] save uploaded files locally first
+  - [ ] queue file uploads until a server is connected
+  - [ ] show "this device only" for local-only files
+  - [ ] retry failed uploads with visible state
+  - [ ] prevent duplicate uploads by tracking local operation ids
+  - [ ] keep file metadata and folder operations syncable
+- [ ] Add file historical versioning:
+  - [ ] preserve old local copy before downloading a newer server version
+  - [ ] preserve old server copy before uploading a newer local version
+  - [ ] expose version history from the save/connection status pop-up
+  - [ ] allow restore/download of prior versions
+- [ ] Add Files verification:
+  - [ ] upload a file locally and reload
+  - [ ] reconnect and sync queued file upload
+  - [ ] move/rename/delete files and folders
+  - [ ] linked Notes and Audio files open in the correct app
+  - [ ] storage by type and search results remain correct after sync
+
+### 12. Coms Communication App
+Goal: Coms is the suite communication app. It should support private/group messages, categorized threads, calls, screenshare, and notification controls while fitting the same local-first, low-tech, customizable UI model.
+
+- [ ] Define Coms manifest and route.
+- [ ] Add Coms backend models:
+  - [ ] conversations/messages
+  - [ ] threads
+  - [ ] thread categories
+  - [ ] participants and permissions
+  - [ ] notification preferences
+  - [ ] call/session metadata
+- [ ] Add Coms UI:
+  - [ ] private and group message areas
+  - [ ] threads separated from direct/group messages
+  - [ ] custom thread categories
+  - [ ] compact mobile-first layout
+  - [ ] shared toolbar/menu behavior
+  - [ ] Appearance-token coverage for every surface
+- [ ] Add calls:
+  - [ ] audio call rooms
+  - [ ] video call rooms
+  - [ ] screenshare rooms
+  - [ ] join call from any participating message or thread
+- [ ] Add notifications:
+  - [ ] global Coms message notification toggle
+  - [ ] global Coms call notification toggle
+  - [ ] per-message/per-thread mute controls
+  - [ ] notification events shown in Feed where useful
+- [ ] Add Coms local-first and server sync design:
+  - [ ] local message draft storage
+  - [ ] server-backed message delivery
+  - [ ] offline queue for sends
+  - [ ] historical/audit log for edited/deleted messages
+  - [ ] workspace/user access checks
+
+### 13. Server Profiles, Secure Sync, And Updates
 Goal: Before building a mobile app, the web/server stack should support real profiles, secure user-scoped data, reliable backup status, and version compatibility checks. Mobile can then connect to a specific OG Suite server without changing the core security or sync model.
 
 - [ ] Replace auth placeholder with real profile/account support:
@@ -589,7 +760,7 @@ Goal: Before building a mobile app, the web/server stack should support real pro
   - [ ] tests cover token refresh and revoke behavior
   - [ ] tests cover default single-user migration/backfill
 
-### 12. Verification
+### 14. Verification
 - [x] Backend tests:
   - health route
   - migrations
@@ -619,6 +790,8 @@ Goal: Before building a mobile app, the web/server stack should support real pro
 ## Assumptions
 - The implementation starts from a clean `OG-suite` repo.
 - `sweet` is reference material only, not the codebase to refactor.
-- Postgres is the v1 backend database.
+- Postgres is the v1 production backend database; the current durable JSON snapshot repository needs to be replaced or explicitly scoped to local/dev mode.
 - App composition is build-time module registration, not runtime plugin loading.
 - Notes is the first complete proof; Feed and Audio build on the same suite runtime, sync, and backend patterns.
+- Every app should remain usable as a standalone vertical slice and as a Suite module.
+- Every data-owning app should save locally first and treat server backup as optional but auditable.
