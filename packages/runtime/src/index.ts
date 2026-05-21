@@ -113,7 +113,8 @@ export function createHttpApiClient(baseUrl: string, getAccessToken?: () => stri
       body: body === undefined ? undefined : JSON.stringify(body),
     })
     if (!response.ok) {
-      throw new Error(`${method} ${path} failed with ${response.status}`)
+      const message = await response.text().catch(() => '')
+      throw new Error(`${method} ${path} failed with ${response.status}${message ? `: ${message}` : ''}`)
     }
     if (response.status === 204) return undefined as T
     return (await response.json()) as T

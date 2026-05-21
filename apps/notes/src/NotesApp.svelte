@@ -335,8 +335,9 @@
         ],
       })
       status = `Backed up to ${server.url}`
-    } catch {
-      status = `Backup failed for ${server.url}`
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error'
+      status = `Backup failed for ${server.url}: ${message}`
     } finally {
       backingUpServerId = ''
     }

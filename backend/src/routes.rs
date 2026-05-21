@@ -3,6 +3,7 @@ use axum::{
     Json, Router,
     body::Body,
     extract::{
+        DefaultBodyLimit,
         Path, Query, State,
         ws::{Message, WebSocket, WebSocketUpgrade},
     },
@@ -104,6 +105,7 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/ws/presence/{document_id}", get(presence_socket))
         .route("/ws/documents/{document_id}", get(document_socket))
+        .layer(DefaultBodyLimit::max(25 * 1024 * 1024))
         .with_state(state)
 }
 
