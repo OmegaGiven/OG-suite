@@ -142,13 +142,26 @@ export function createOfflineApiClient(message = 'Local-only mode is not connect
 }
 
 export function createBrowserLocalCache(key = 'og-suite:workspace'): LocalCache {
+  function serializeEnvelope(envelope: SyncEnvelope, includeDocumentUpdates = true) {
+    return JSON.stringify(includeDocumentUpdates ? envelope : { ...envelope, documentUpdates: [] })
+  }
+
   return {
     async loadEnvelope() {
       const raw = localStorage.getItem(key)
       return raw ? (JSON.parse(raw) as SyncEnvelope) : null
     },
     async saveEnvelope(envelope) {
-      localStorage.setItem(key, JSON.stringify(envelope))
+      try {
+        localStorage.setItem(key, serializeEnvelope(envelope))
+      } catch (error) {
+        try {
+          localStorage.setItem(key, serializeEnvelope(envelope, false))
+          console.warn(`Saved compact workspace cache for ${key} after full cache write failed.`, error)
+        } catch (compactError) {
+          console.warn(`Skipped workspace cache save for ${key}; browser storage is full or unavailable.`, compactError)
+        }
+      }
     },
   }
 }

@@ -16,11 +16,20 @@
   export let activeSuiteAppId = ''
   export let onSuiteAppSelect: ((appId: string) => void) | undefined = undefined
   export let onOpenSuiteSettings: (() => void) | undefined = undefined
+  export let onOpenActivityTarget: ((target: SuiteOpenTarget) => void) | undefined = undefined
 
   type SuiteNavItem = {
     id: string
     name: string
     disabled?: boolean
+  }
+
+  type SuiteOpenTarget = {
+    appId: string
+    targetKind: string
+    targetId: string
+    targetLabel: string
+    requestId: number
   }
 
   type DriveFile = {
@@ -361,6 +370,38 @@
     downloadBlob(blob, selectedFile.name)
   }
 
+  async function openSelectedFile() {
+    if (!selectedFile) return
+    if (selectedFile.source === 'note') {
+      onOpenActivityTarget?.({
+        appId: 'notes',
+        targetKind: 'note',
+        targetId: selectedFile.sourceId,
+        targetLabel: selectedFile.name,
+        requestId: Date.now(),
+      })
+      return
+    }
+    if (selectedFile.source === 'audio') {
+      onOpenActivityTarget?.({
+        appId: 'audio',
+        targetKind: 'recording',
+        targetId: selectedFile.sourceId,
+        targetLabel: selectedFile.name,
+        requestId: Date.now(),
+      })
+      return
+    }
+    const blob = await getBlob(selectedFile.sourceId)
+    if (!blob) {
+      error = 'File data is missing from local storage.'
+      return
+    }
+    const url = URL.createObjectURL(blob)
+    window.open(url, '_blank', 'noopener,noreferrer')
+    setTimeout(() => URL.revokeObjectURL(url), 60_000)
+  }
+
   async function moveFile(fileId: string, path: string) {
     const normalized = normalizeFolderPath(path)
     const file = allFiles.find((item) => item.id === fileId)
@@ -613,6 +654,7 @@
           {/if}
         </div>
         <ActionButton icon="rename" label="Rename selected file" iconOnly disabled={!selectedFile?.canManage} on:click={renameSelectedFile} />
+        <ActionButton icon="open" label="Open selected file" iconOnly disabled={!selectedFile} on:click={openSelectedFile} />
         <ActionButton icon="download" label="Download selected file" iconOnly disabled={!selectedFile?.canDownload} on:click={downloadSelectedFile} />
         <ActionButton icon="delete" label="Delete selected file" iconOnly tone="danger" disabled={!selectedFile?.canManage} on:click={deleteSelectedFile} />
         <ActionButton icon="refresh" label="Refresh files" iconOnly on:click={() => { void refreshLinkedFiles(); void refreshStorageEstimate() }} />

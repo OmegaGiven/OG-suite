@@ -43,6 +43,10 @@ export function mergeEnvelope(current: SyncEnvelope | null, incoming: SyncEnvelo
   }
 }
 
+export function normalizeRemoteEnvelope(incoming: SyncEnvelope): SyncEnvelope {
+  return mergeEnvelope(emptyEnvelope(), incoming)
+}
+
 export async function bootstrapWorkspace(services: RuntimeServices): Promise<SyncEnvelope> {
   const queued = await services.syncQueue.list()
   if (queued.length > 0) {
@@ -55,7 +59,7 @@ export async function bootstrapWorkspace(services: RuntimeServices): Promise<Syn
 
   try {
     const remote = await services.api.get<SyncEnvelope>('/api/v1/sync/bootstrap')
-    const merged = mergeEnvelope(await services.cache.loadEnvelope(), remote)
+    const merged = normalizeRemoteEnvelope(remote)
     await services.cache.saveEnvelope(merged)
     return merged
   } catch {
@@ -79,7 +83,7 @@ export async function flushQueuedOperations(services: RuntimeServices): Promise<
     operations: queued.map((item) => item.operation),
   })
   await services.syncQueue.remove(queued.map((item) => item.id))
-  const merged = mergeEnvelope(await services.cache.loadEnvelope(), response)
+  const merged = normalizeRemoteEnvelope(response)
   await services.cache.saveEnvelope(merged)
   return merged
 }
@@ -90,7 +94,7 @@ export async function pullChanges(services: RuntimeServices): Promise<SyncEnvelo
 
   const current = (await services.cache.loadEnvelope()) ?? emptyEnvelope()
   const response = await services.api.post<SyncPullResponse>('/api/v1/sync/pull', { cursors: current.cursors })
-  const merged = mergeEnvelope(current, response)
+  const merged = normalizeRemoteEnvelope(response)
   await services.cache.saveEnvelope(merged)
   return merged
 }

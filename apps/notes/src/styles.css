@@ -1273,6 +1273,18 @@ footer {
   font-weight: 800;
 }
 
+.note-status-section-title span {
+  color: var(--muted, var(--og-muted));
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.note-status-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
 .note-status-server-row,
 .note-sync-log > div {
   display: grid;
@@ -1294,6 +1306,7 @@ footer {
   gap: 8px;
 }
 
+.note-status-actions button,
 .note-status-server-row button {
   min-height: 28px;
   border: 1px solid var(--border, var(--og-border));
@@ -1303,6 +1316,23 @@ footer {
   padding: 0 8px;
   font-size: 12px;
   font-weight: 800;
+}
+
+.note-status-actions button:disabled,
+.note-status-server-row button:disabled {
+  opacity: 0.45;
+}
+
+.note-sync-log-export {
+  width: 100%;
+  min-height: 170px;
+  resize: vertical;
+  padding: 9px;
+  border: 1px solid var(--border, var(--og-border));
+  border-radius: calc(var(--field-radius, var(--og-field-radius)) - 2px);
+  background: var(--input-bg, var(--og-input-bg));
+  color: var(--text, var(--og-text));
+  font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
 .note-sync-log {

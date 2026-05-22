@@ -83,7 +83,7 @@
   let status = 'Starting'
   let loggedStatus = ''
   let statusDialogOpen = false
-  let syncLog: Array<{ id: string; message: string; at: string }> = []
+  let syncLog: Array<{ id: string; message: string; at: string; iso: string }> = []
   let lastSyncAttemptAt = ''
   let lastSyncPushAt = ''
   let lastSyncPullAt = ''
@@ -93,6 +93,8 @@
   let queuedOperationCount = 0
   let queuedDocumentIds: string[] = []
   let backingUpServerId = ''
+  let manualSyncBusy: 'push' | 'pull' | '' = ''
+  let logCopyStatus = ''
   let lastEditorInteractionAt = 0
   let deferredDocumentRefreshId = ''
   let lastTextSelection = { start: 0, end: 0 }
@@ -244,20 +246,59 @@
   $: tocHeadings = editorRenderMode === 'rich' ? getRichHeadings(richActiveStateVersion) : getMarkdownHeadings(editorText)
   $: isLocalRuntime = services.runtimeMode === 'local'
   $: activeServerLabel = isLocalRuntime ? 'Local device only' : activeServerUrl || services.serverUrl || 'Remote server'
+  $: syncLogText = buildSyncLogText()
   $: if (status && status !== loggedStatus) {
     loggedStatus = status
     logSyncEvent(status)
   }
 
   function logSyncEvent(message: string) {
-    syncLog = [{ id: `${Date.now()}-${syncLog.length}`, message, at: new Date().toLocaleTimeString() }, ...syncLog].slice(0, 40)
+    syncLog = [{ id: `${Date.now()}-${syncLog.length}`, message, at: new Date().toLocaleTimeString(), iso: new Date().toISOString() }, ...syncLog].slice(0, 160)
   }
 
   function recordSyncError(error: unknown, fallback: string) {
     const message = error instanceof Error ? error.message : fallback
     lastSyncError = `${new Date().toLocaleTimeString()} - ${message}`
     logSyncEvent(`Error: ${message}`)
+    if (error instanceof Error && error.stack) logSyncEvent(`Stack: ${error.stack}`)
     return message
+  }
+
+  function buildSyncLogText() {
+    const selected = selectedNote ? `${selectedNote.title} (${selectedNote.id}, document ${selectedNote.documentId})` : 'None'
+    const lines = [
+      `OG Notes sync log`,
+      `Generated: ${new Date().toISOString()}`,
+      `Mode: ${isLocalRuntime ? 'local' : 'remote'}`,
+      `Server: ${activeServerLabel}`,
+      `Client: ${services.clientId}`,
+      `Selected note: ${selected}`,
+      `Queued changes: ${queuedOperationCount}`,
+      `Queued document ids: ${queuedDocumentIds.join(', ') || 'none'}`,
+      `Last attempt: ${lastSyncAttemptAt || 'none'}`,
+      `Last push: ${lastSyncPushAt || 'none'}`,
+      `Last pull: ${lastSyncPullAt || 'none'}`,
+      `Last remote update: ${lastRemoteUpdateAt || 'none'}`,
+      `Last document refresh: ${lastDocumentRefreshAt || 'none'}`,
+      `Last error: ${lastSyncError || 'none'}`,
+      '',
+      'Recent activity:',
+      ...syncLog.map((item) => `[${item.iso ?? item.at}] ${item.message}`),
+    ]
+    return lines.join('\n')
+  }
+
+  async function copySyncLog() {
+    try {
+      await navigator.clipboard.writeText(syncLogText)
+      logCopyStatus = 'Copied'
+      setTimeout(() => {
+        logCopyStatus = ''
+      }, 1800)
+    } catch (error) {
+      recordSyncError(error, 'Could not copy sync log.')
+      logCopyStatus = 'Copy failed'
+    }
   }
 
   function getSaveIndicatorState(currentStatus: string): SaveIndicatorState {
@@ -311,6 +352,54 @@
     } catch (error) {
       recordSyncError(error, 'Could not reach server while syncing.')
       status = 'Offline, saving locally'
+    }
+  }
+
+  async function manualPushToServer() {
+    if (isLocalRuntime || manualSyncBusy) return
+    manualSyncBusy = 'push'
+    lastSyncAttemptAt = new Date().toLocaleTimeString()
+    logSyncEvent('Manual push started')
+    try {
+      await flushPendingEditorSave()
+      envelope = await flushQueuedOperations(services)
+      lastSyncPushAt = new Date().toLocaleTimeString()
+      await refreshQueuedOperationCount()
+      refreshSelectedEditorFromEnvelope()
+      status = 'Manual push complete'
+      logSyncEvent(`Manual push complete with ${queuedOperationCount} queued change${queuedOperationCount === 1 ? '' : 's'} remaining`)
+    } catch (error) {
+      recordSyncError(error, 'Manual push failed.')
+      status = 'Manual push failed'
+    } finally {
+      manualSyncBusy = ''
+    }
+  }
+
+  async function manualPullFromServer() {
+    if (isLocalRuntime || manualSyncBusy) return
+    manualSyncBusy = 'pull'
+    lastSyncAttemptAt = new Date().toLocaleTimeString()
+    logSyncEvent('Manual pull started')
+    try {
+      await flushPendingEditorSave()
+      await refreshQueuedOperationCount()
+      if (queuedOperationCount > 0) {
+        status = 'Push queued changes before pulling'
+        logSyncEvent(`Manual pull stopped because ${queuedOperationCount} local change${queuedOperationCount === 1 ? '' : 's'} are queued`)
+        return
+      }
+      envelope = await pullChanges(services)
+      lastSyncPullAt = new Date().toLocaleTimeString()
+      refreshSelectedEditorFromEnvelope()
+      await refreshSelectedDocumentFromServer()
+      status = 'Manual pull complete'
+      logSyncEvent(`Manual pull complete; loaded ${notes.length} note${notes.length === 1 ? '' : 's'}`)
+    } catch (error) {
+      recordSyncError(error, 'Manual pull failed.')
+      status = 'Manual pull failed'
+    } finally {
+      manualSyncBusy = ''
     }
   }
 
@@ -2544,6 +2633,20 @@
         {/if}
         <div class="note-status-section">
           <div class="note-status-section-title">
+            <strong>Manual sync</strong>
+            <span>{manualSyncBusy ? `${manualSyncBusy} running` : 'Ready'}</span>
+          </div>
+          <div class="note-status-actions">
+            <button type="button" disabled={isLocalRuntime || Boolean(manualSyncBusy)} on:click={manualPushToServer}>
+              {manualSyncBusy === 'push' ? 'Pushing' : 'Push'}
+            </button>
+            <button type="button" disabled={isLocalRuntime || Boolean(manualSyncBusy)} on:click={manualPullFromServer}>
+              {manualSyncBusy === 'pull' ? 'Pulling' : 'Pull'}
+            </button>
+          </div>
+        </div>
+        <div class="note-status-section">
+          <div class="note-status-section-title">
             <strong>Backup targets</strong>
             <button type="button" on:click={() => onOpenServerManager?.()}>Manage</button>
           </div>
@@ -2568,7 +2671,11 @@
           {/if}
         </div>
         <div class="note-status-section">
-          <strong>Recent activity</strong>
+          <div class="note-status-section-title">
+            <strong>Recent activity</strong>
+            <button type="button" on:click={copySyncLog}>{logCopyStatus || 'Copy log'}</button>
+          </div>
+          <textarea class="note-sync-log-export" readonly value={syncLogText}></textarea>
           <div class="note-sync-log">
             {#each syncLog as item}
               <div>
