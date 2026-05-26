@@ -552,7 +552,7 @@
       updatedAt: now,
     }
     const document = createDocumentState(documentId, 'note', '')
-    await queueOperation(services, { kind: 'create_note', note, document })
+    await queueWorkspaceOperation({ kind: 'create_note', note, document })
     await refreshQueuedOperationCount()
     envelope = await services.cache.loadEnvelope()
     selectNote(note)
@@ -576,7 +576,7 @@
       updatedAt: now,
     }
     const document = createDocumentState(documentId, 'note', text)
-    await queueOperation(services, { kind: 'create_note', note, document })
+    await queueWorkspaceOperation({ kind: 'create_note', note, document })
     await refreshQueuedOperationCount()
     envelope = await services.cache.loadEnvelope()
     selectNote(note)
@@ -591,7 +591,7 @@
       path: draftPath.trim() || '/',
       updatedAt: new Date().toISOString(),
     }
-    await queueOperation(services, { kind: 'update_note_metadata', note: updated })
+    await queueWorkspaceOperation({ kind: 'update_note_metadata', note: updated })
     await refreshQueuedOperationCount()
     envelope = await services.cache.loadEnvelope()
     status = 'Metadata queued'
@@ -607,7 +607,7 @@
       path: nextPath,
       updatedAt: new Date().toISOString(),
     }
-    await queueOperation(services, { kind: 'update_note_metadata', note: updated })
+    await queueWorkspaceOperation({ kind: 'update_note_metadata', note: updated })
     await refreshQueuedOperationCount()
     envelope = await services.cache.loadEnvelope()
     if (selectedNoteId === noteId) draftPath = nextPath
@@ -636,7 +636,7 @@
     for (const folder of affectedFolders) {
       const currentPath = normalizeFolderPath(folder.path)
       const nextPath = remapPath(currentPath, sourcePath, movedPath)
-      await queueOperation(services, {
+      await queueWorkspaceOperation({
         kind: 'create_note_folder',
         folder: {
           ...folder,
@@ -648,7 +648,7 @@
     }
 
     for (const note of affectedNotes) {
-      await queueOperation(services, {
+      await queueWorkspaceOperation({
         kind: 'update_note_metadata',
         note: {
           ...note,
@@ -690,7 +690,7 @@
 
     for (const folder of affectedFolders) {
       const nextPath = remapPath(normalizeFolderPath(folder.path), sourcePath, renamedPath)
-      await queueOperation(services, {
+      await queueWorkspaceOperation({
         kind: 'create_note_folder',
         folder: {
           ...folder,
@@ -702,7 +702,7 @@
     }
 
     for (const note of affectedNotes) {
-      await queueOperation(services, {
+      await queueWorkspaceOperation({
         kind: 'update_note_metadata',
         note: {
           ...note,
@@ -1001,6 +1001,12 @@
     if (hadSaveTimer || hasPendingLocalEditorChange(editorDocumentId)) await saveDocument()
   }
 
+  async function queueWorkspaceOperation(operation: SyncOperation) {
+    const queued = await queueOperation(services, operation)
+    scheduleRemoteFlush()
+    return queued
+  }
+
   function scheduleRemoteFlush() {
     if (isLocalRuntime) {
       status = 'Saved locally'
@@ -1238,7 +1244,7 @@
   async function deleteSelectedNote() {
     if (!selectedNote) return
     if (tokens.confirmDelete && !window.confirm(`Delete "${selectedNote.title}"?`)) return
-    await queueOperation(services, {
+    await queueWorkspaceOperation({
       kind: 'delete_note',
       id: selectedNote.id,
       deletedAt: new Date().toISOString(),
@@ -1261,14 +1267,14 @@
 
     const deletedAt = new Date().toISOString()
     for (const note of selectedFolderNotes) {
-      await queueOperation(services, {
+      await queueWorkspaceOperation({
         kind: 'delete_note',
         id: note.id,
         deletedAt,
       })
     }
     for (const folder of selectedFolderFolders) {
-      await queueOperation(services, {
+      await queueWorkspaceOperation({
         kind: 'delete_note_folder',
         id: folder.id,
         deletedAt,
@@ -1591,7 +1597,7 @@
         createdAt: now,
         updatedAt: now,
       }
-      await queueOperation(services, { kind: 'create_note_folder', folder })
+      await queueWorkspaceOperation({ kind: 'create_note_folder', folder })
       await refreshQueuedOperationCount()
       envelope = await services.cache.loadEnvelope()
     }

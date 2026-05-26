@@ -1,6 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
   <rect width="1024" height="1024" fill="#080A0D"/>
   <g
+    transform="translate(512 512) scale(0.82) translate(-512 -512)"
     fill="none"
     stroke="#EEF2E8"
     stroke-width="48"

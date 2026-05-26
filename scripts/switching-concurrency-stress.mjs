@@ -24,8 +24,8 @@ try {
 
   const desktopPage = await desktop.newPage()
   const mobilePage = await mobile.newPage()
-const desktopEditor = await openTextNote(desktopPage, titleA)
-const mobileEditor = await openTextNote(mobilePage, titleA, true)
+const desktopEditor = await openTextNote(desktopPage, titleA, false, 'Note A seed.')
+const mobileEditor = await openTextNote(mobilePage, titleA, true, 'Note A seed.')
 
 await Promise.all([
   appendText(desktopPage, desktopEditor, 'desktop edit A before tab switch\n'),
@@ -38,14 +38,14 @@ const afterFirstA = await Promise.all([desktopEditor.inputValue(), mobileEditor.
   await desktopFeedTab.getByRole('button', { name: 'Feed', exact: true }).click({ timeout: 5000 }).catch(() => {})
   await desktopFeedTab.waitForTimeout(250)
 
-  await selectNote(mobilePage, titleB, true)
+  await selectNote(mobilePage, titleB, true, 'Note B seed.')
   await appendText(mobilePage, mobileEditor, 'mobile edit B after note switch\n')
-  await selectNote(desktopPage, titleB)
+  await selectNote(desktopPage, titleB, false, 'Note B seed.')
   await appendText(desktopPage, desktopEditor, 'desktop edit B after tab switch\n')
 
   await desktopFeedTab.close()
-  await selectNote(desktopPage, titleA)
-  await selectNote(mobilePage, titleA, true)
+  await selectNote(desktopPage, titleA, false, 'Note A seed.')
+  await selectNote(mobilePage, titleA, true, 'Note A seed.')
   await Promise.all([
     appendText(desktopPage, desktopEditor, 'desktop edit A after return\n'),
     appendText(mobilePage, mobileEditor, 'mobile edit A after return\n'),
@@ -95,11 +95,11 @@ async function prepareContext(context) {
   )
 }
 
-async function openTextNote(page, title, mobileLayout = false) {
+async function openTextNote(page, title, mobileLayout = false, expectedText = '') {
   await page.goto(appUrl, { waitUntil: 'networkidle' })
   await openNotesApp(page)
-  await selectNote(page, title, mobileLayout)
-  const textarea = page.locator('textarea')
+  await selectNote(page, title, mobileLayout, expectedText)
+  const textarea = page.locator('main.notes-app textarea').first()
   await textarea.waitFor()
   await textarea.click()
   return textarea
@@ -117,7 +117,7 @@ async function openNotesApp(page) {
     })
 }
 
-async function selectNote(page, title, mobileLayout = false) {
+async function selectNote(page, title, mobileLayout = false, expectedText = '') {
   for (let attempt = 0; attempt < 3; attempt += 1) {
     if (mobileLayout) {
       await openMobileFiles(page)
@@ -132,12 +132,22 @@ async function selectNote(page, title, mobileLayout = false) {
     } else {
       await page.locator('.notes-list button.note-row').filter({ hasText: title }).first().click()
     }
-    await page.locator('textarea').waitFor()
-    const selectedTitle = await page.locator('input[aria-label="Title"]').inputValue().catch(() => '')
-    if (selectedTitle === title) return
+    await page.locator('main.notes-app textarea').first().waitFor()
+    const selectedTitle = await page.locator('main.notes-app input[aria-label="Title"]').inputValue().catch(() => '')
+    if (selectedTitle === title && (!expectedText || (await waitForEditorText(page, expectedText)))) return
     await page.waitForTimeout(250)
   }
   throw new Error(`Could not select note ${title}`)
+}
+
+async function waitForEditorText(page, expectedText) {
+  const deadline = Date.now() + 5000
+  while (Date.now() < deadline) {
+    const value = await page.locator('main.notes-app textarea').first().inputValue().catch(() => '')
+    if (value.includes(expectedText)) return true
+    await page.waitForTimeout(100)
+  }
+  return false
 }
 
 async function openMobileFiles(page) {

@@ -17,6 +17,7 @@
     "backend:test": "cargo test --manifest-path backend/Cargo.toml",
     "perf:budget": "node scripts/performance-budget.mjs",
     "stress:concurrency": "node scripts/concurrency-stress.mjs",
+    "stress:create-delete": "node scripts/create-delete-sync-stress.mjs",
     "stress:delete": "node scripts/delete-concurrency-stress.mjs",
     "stress:selection": "node scripts/selection-stability-stress.mjs",
     "stress:switching": "node scripts/switching-concurrency-stress.mjs",
