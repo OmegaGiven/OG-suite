@@ -102,6 +102,8 @@
   let sequence = 1
   let unsubscribePresence: (() => void) | null = null
   let unsubscribeDocumentUpdates: (() => void) | null = null
+  let liveUpdateQueueIds = new Map<string, string>()
+  let liveUpdateFallbackTimers = new Map<string, ReturnType<typeof setTimeout>>()
   let saveTimer: ReturnType<typeof setTimeout> | null = null
   let flushTimer: ReturnType<typeof setTimeout> | null = null
   let pullTimer: ReturnType<typeof setInterval> | null = null
@@ -484,7 +486,7 @@
     unsubscribePresence = services.presence.connect(note.documentId, (nextPeers) => {
       peers = nextPeers.filter((peer) => peer.clientId !== services.clientId)
     })
-    unsubscribeDocumentUpdates = services.documentUpdates.connect(note.documentId, applyRemoteDocumentUpdate)
+    unsubscribeDocumentUpdates = services.documentUpdates.connect(note.documentId, applyRemoteDocumentUpdate, handleLiveDocumentAck, handleLiveDocumentError)
     void refreshSelectedDocumentFromServer(note.documentId)
     mobileFilesOpen = false
   }
@@ -928,17 +930,58 @@
       id: createRuntimeId('update'),
       createdAt: new Date().toISOString(),
     }
-    await queueOperation(services, { kind: 'append_document_update', update })
+    const queued = await queueOperation(services, { kind: 'append_document_update', update })
+    liveUpdateQueueIds.set(update.id, queued.id)
     await refreshQueuedOperationCount()
     envelope = await services.cache.loadEnvelope()
     if (editorDocumentId === activeEditorDocumentId) {
       lastSavedEditorText = nextText
     }
     const broadcasted = services.documentUpdates.publishUpdate(activeEditorDocumentId, update)
-    logSyncEvent(`Queued edit ${update.id} for ${noteForDocument.title || noteForDocument.id}`)
-    scheduleRemoteFlush()
+    logSyncEvent(`${broadcasted ? 'Shared live edit' : 'Queued edit'} ${update.id} for ${noteForDocument.title || noteForDocument.id}`)
+    if (broadcasted) {
+      scheduleLiveAckFallback(update.id)
+    } else {
+      scheduleRemoteFlush()
+    }
     services.presence.publishCursor(activeEditorDocumentId, editorElement?.selectionStart ?? nextText.length)
     status = isLocalRuntime ? 'Saved locally' : broadcasted ? 'Document shared live' : 'Document queued for sync'
+  }
+
+  async function handleLiveDocumentAck(ack: { updateId: string; documentId: string; documentVersion?: number }) {
+    const queuedId = liveUpdateQueueIds.get(ack.updateId)
+    if (!queuedId) return
+    clearLiveAckFallback(ack.updateId)
+    liveUpdateQueueIds.delete(ack.updateId)
+    await services.syncQueue.remove([queuedId])
+    await refreshQueuedOperationCount()
+    lastSyncPushAt = new Date().toLocaleTimeString()
+    status = 'Live edit saved to server'
+    logSyncEvent(`Server saved live edit ${ack.updateId}${ack.documentVersion ? ` at document version ${ack.documentVersion}` : ''}`)
+  }
+
+  function handleLiveDocumentError(error: { updateId?: string; message: string }) {
+    if (error.updateId) clearLiveAckFallback(error.updateId)
+    logSyncEvent(`Live edit failed${error.updateId ? ` ${error.updateId}` : ''}: ${error.message}`)
+    status = 'Live edit queued for sync'
+    scheduleRemoteFlush()
+  }
+
+  function scheduleLiveAckFallback(updateId: string) {
+    clearLiveAckFallback(updateId)
+    const timer = setTimeout(() => {
+      liveUpdateFallbackTimers.delete(updateId)
+      if (!liveUpdateQueueIds.has(updateId)) return
+      logSyncEvent(`Live edit ${updateId} is waiting for server ack; falling back to queued sync`)
+      scheduleRemoteFlush()
+    }, 5000)
+    liveUpdateFallbackTimers.set(updateId, timer)
+  }
+
+  function clearLiveAckFallback(updateId: string) {
+    const timer = liveUpdateFallbackTimers.get(updateId)
+    if (timer) clearTimeout(timer)
+    liveUpdateFallbackTimers.delete(updateId)
   }
 
   function scheduleDocumentSave() {
@@ -1671,6 +1714,7 @@
     destroyRichEditor()
     if (saveTimer) clearTimeout(saveTimer)
     if (flushTimer) clearTimeout(flushTimer)
+    for (const timer of liveUpdateFallbackTimers.values()) clearTimeout(timer)
     if (pullTimer) clearInterval(pullTimer)
   })
 

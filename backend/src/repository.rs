@@ -1630,11 +1630,18 @@ mod tests {
 
         let document = repo.document(note.document_id).await.unwrap();
         assert_eq!(document.updates.len(), 2);
-        assert!(document.updates.iter().any(|update| update.payload == "old-local-edit"));
-        assert!(document
-            .updates
-            .iter()
-            .any(|update| update.payload == "new-local-edit-after-restart"));
+        assert!(
+            document
+                .updates
+                .iter()
+                .any(|update| update.payload == "old-local-edit")
+        );
+        assert!(
+            document
+                .updates
+                .iter()
+                .any(|update| update.payload == "new-local-edit-after-restart")
+        );
     }
 
     #[tokio::test]
@@ -1708,7 +1715,17 @@ mod tests {
 
         let document = repo.document(server_update.document_id).await.unwrap();
         assert_eq!(document.updates.len(), 2);
-        assert!(document.updates.iter().any(|update| update.id == server_update.id));
-        assert!(document.updates.iter().any(|update| update.id == local_update.id));
+        assert!(
+            document
+                .updates
+                .iter()
+                .any(|update| update.id == server_update.id)
+        );
+        assert!(
+            document
+                .updates
+                .iter()
+                .any(|update| update.id == local_update.id)
+        );
     }
 }

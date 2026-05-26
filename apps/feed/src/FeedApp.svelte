@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { CreateFeedFavoriteRequest, FeedActivityEvent, FeedFavorite } from '@og-suite/contracts'
+  import type { CreateFeedFavoriteRequest, FeedActivityEvent, FeedFavorite, Note } from '@og-suite/contracts'
   import type { RuntimeServices } from '@og-suite/runtime'
   import Icon from '@og-suite/ui/Icon'
   import MobileSuiteMenu from '@og-suite/ui/MobileSuiteMenu'
@@ -29,10 +29,13 @@
 
   let activities: FeedActivityEvent[] = []
   let favorites: FeedFavorite[] = []
+  let notes: Note[] = []
   let loading = true
   let error = ''
 
   $: favoriteKeys = new Set(favorites.map((favorite) => favoriteKey(favorite.targetKind, favorite.targetId)))
+  $: noteLabelsById = new Map(notes.map((note) => [note.id, note.title]))
+  $: noteLabelsByDocumentId = new Map(notes.map((note) => [note.documentId, note.title]))
 
   onMount(() => {
     void refreshFeed()
@@ -44,12 +47,14 @@
     if (showLoading) loading = true
     error = ''
     try {
-      const [nextActivities, nextFavorites] = await Promise.all([
+      const [nextActivities, nextFavorites, nextNotes] = await Promise.all([
         services.api.get<FeedActivityEvent[]>('/api/v1/feed'),
         services.api.get<FeedFavorite[]>('/api/v1/feed/favorites'),
+        services.api.get<Note[]>('/api/v1/notes'),
       ])
       activities = nextActivities
       favorites = nextFavorites
+      notes = nextNotes
     } catch (feedError) {
       error = feedError instanceof Error ? feedError.message : 'Feed failed to load'
     } finally {
@@ -71,7 +76,7 @@
     return {
       targetKind: activity.targetKind as CreateFeedFavoriteRequest['targetKind'],
       targetId: activity.targetId,
-      label: activity.targetLabel,
+      label: activityLabel(activity),
       appId: activity.appId,
     }
   }
@@ -93,9 +98,21 @@
       appId: activity.appId,
       targetKind: activity.targetKind,
       targetId: activity.targetId,
-      targetLabel: activity.targetLabel,
+      targetLabel: activityLabel(activity),
       requestId: Date.now(),
     })
+  }
+
+  function activityLabel(activity: FeedActivityEvent) {
+    if (activity.targetKind === 'note') return noteLabelsById.get(activity.targetId) ?? activity.targetLabel
+    if (activity.targetKind === 'document') return noteLabelsByDocumentId.get(activity.targetId) ?? activity.targetLabel
+    return activity.targetLabel
+  }
+
+  function activitySummary(activity: FeedActivityEvent) {
+    const label = activityLabel(activity)
+    if (activity.targetKind === 'document' && label !== activity.targetLabel) return `Edited "${label}"`
+    return activity.summary
   }
 
   function formatTime(value: string) {
@@ -117,27 +134,6 @@
 </script>
 
 <article class="feed-app">
-  <section class="feed-hero">
-    <div class="feed-hero-actions">
-      <button class="ghost-button icon-only" aria-label="Refresh feed" title="Refresh" on:click={() => refreshFeed()} disabled={loading}>
-        <Icon name="refresh" size={16} />
-      </button>
-      {#if mode === 'suite'}
-        <MobileSuiteMenu
-          title="Feed"
-          navItems={suiteNavItems}
-          activeAppId={activeSuiteAppId}
-          onSelectApp={selectSuiteApp}
-          onOpenSettings={onOpenSuiteSettings}
-        >
-          <button on:click={() => refreshFeed()} disabled={loading}>
-            <span>Refresh</span>
-          </button>
-        </MobileSuiteMenu>
-      {/if}
-    </div>
-  </section>
-
   {#if error}
     <p class="feed-error">{error}</p>
   {/if}
@@ -168,7 +164,25 @@
   <section class="feed-section" aria-labelledby="timeline-heading">
     <div class="section-heading">
       <h2 id="timeline-heading">Activity</h2>
-      <span>Newest first</span>
+      <div class="section-actions">
+        <span>Newest first</span>
+        <button class="ghost-button icon-only" aria-label="Refresh feed" title="Refresh" on:click={() => refreshFeed()} disabled={loading}>
+          <Icon name="refresh" size={16} />
+        </button>
+        {#if mode === 'suite'}
+          <MobileSuiteMenu
+            title="Feed"
+            navItems={suiteNavItems}
+            activeAppId={activeSuiteAppId}
+            onSelectApp={selectSuiteApp}
+            onOpenSettings={onOpenSuiteSettings}
+          >
+            <button on:click={() => refreshFeed()} disabled={loading}>
+              <span>Refresh</span>
+            </button>
+          </MobileSuiteMenu>
+        {/if}
+      </div>
     </div>
 
     {#if loading}
@@ -179,21 +193,21 @@
           <li class="timeline-item">
             <div class="timeline-body">
               <div class="timeline-topline">
-                <strong>{activity.summary}</strong>
+                <strong>{activitySummary(activity)}</strong>
                 <time datetime={activity.createdAt}>{formatTime(activity.createdAt)}</time>
               </div>
               <div class="timeline-meta">
                 <span>{activity.actorName}</span>
                 <span>{activity.appId}</span>
                 <span>{actionLabel(activity.action)}</span>
-                <span>{activity.targetKind}: {activity.targetLabel}</span>
+                <span>{activity.targetKind}: {activityLabel(activity)}</span>
               </div>
             </div>
             <div class="timeline-actions">
               {#if canOpen(activity)}
                 <button
                   class="icon-action"
-                  aria-label={`Open ${activity.targetLabel}`}
+                  aria-label={`Open ${activityLabel(activity)}`}
                   on:click={() => openActivity(activity)}
                 >
                   <Icon name="open" size={15} />
@@ -202,7 +216,7 @@
               {#if canFavorite(activity)}
                 <button
                   class="icon-action"
-                  aria-label={`Favorite ${activity.targetLabel}`}
+                  aria-label={`Favorite ${activityLabel(activity)}`}
                   disabled={favoriteKeys.has(favoriteKey(activity.targetKind, activity.targetId))}
                   on:click={() => addFavorite(favoriteFromActivity(activity))}
                 >
@@ -226,7 +240,6 @@
     color: var(--text, var(--og-text));
   }
 
-  .feed-hero,
   .feed-section {
     border: 1px solid var(--border, var(--og-border));
     border-radius: var(--panel-radius, var(--og-panel-radius));
@@ -235,15 +248,7 @@
     backdrop-filter: blur(18px);
   }
 
-  .feed-hero {
-    display: flex;
-    align-items: center;
-    justify-content: flex-end;
-    gap: var(--space-md, 12px);
-    padding: var(--space-md, 12px);
-  }
-
-  .feed-hero-actions {
+  .section-actions {
     display: flex;
     align-items: center;
     gap: 6px;
@@ -254,14 +259,13 @@
       padding: 0;
     }
 
-    .feed-hero,
     .feed-section {
       border-left: 0;
       border-right: 0;
       border-radius: 0;
     }
 
-    .feed-hero-actions > .ghost-button {
+    .section-actions > span {
       display: none;
     }
   }
@@ -433,7 +437,6 @@
       padding: 0;
     }
 
-    .feed-hero,
     .feed-section {
       border-left: 0;
       border-right: 0;

@@ -1,5 +1,5 @@
 import type { SyncEnvelope, SyncOperation, SyncPullResponse, SyncPushResponse } from '@og-suite/contracts'
-import type { RuntimeServices } from '@og-suite/runtime'
+import type { QueuedOperation, RuntimeServices } from '@og-suite/runtime'
 
 export function emptyEnvelope(): SyncEnvelope {
   return {
@@ -67,11 +67,11 @@ export async function bootstrapWorkspace(services: RuntimeServices): Promise<Syn
   }
 }
 
-export async function queueOperation(services: RuntimeServices, operation: SyncOperation): Promise<void> {
+export async function queueOperation(services: RuntimeServices, operation: SyncOperation): Promise<QueuedOperation> {
   const current = (await services.cache.loadEnvelope()) ?? emptyEnvelope()
   const optimistic = mergeEnvelope(current, envelopeFromOperation(operation))
   await services.cache.saveEnvelope(optimistic)
-  await services.syncQueue.enqueue(operation)
+  return services.syncQueue.enqueue(operation)
 }
 
 export async function flushQueuedOperations(services: RuntimeServices): Promise<SyncEnvelope> {

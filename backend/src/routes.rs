@@ -3,8 +3,7 @@ use axum::{
     Json, Router,
     body::Body,
     extract::{
-        DefaultBodyLimit,
-        Path, Query, State,
+        DefaultBodyLimit, Path, Query, State,
         ws::{Message, WebSocket, WebSocketUpgrade},
     },
     http::{
@@ -18,6 +17,7 @@ use chrono::Utc;
 use futures::{SinkExt, StreamExt};
 use serde::Deserialize;
 use serde_json::json;
+use tokio::sync::mpsc;
 use uuid::Uuid;
 
 pub fn router(state: AppState) -> Router {
@@ -346,12 +346,18 @@ async fn sync_push(
     let mut accepted = Vec::new();
     for operation in payload.operations {
         accepted.push(operation_id(&operation));
-        let event = feed_event_from_operation(&operation);
         let update_to_broadcast = match &operation {
             SyncOperation::AppendDocumentUpdate { update } => Some(update.clone()),
             _ => None,
         };
+        let event = feed_event_from_operation(&operation);
         state.repo.apply_sync_operation(operation).await?;
+        let event = if let Some(update) = &update_to_broadcast {
+            document_event_for_document(&state, update.document_id, "Edited document".to_string())
+                .await?
+        } else {
+            event
+        };
         state.repo.append_feed_event(event).await?;
         if let Some(update) = update_to_broadcast {
             state
@@ -739,10 +745,8 @@ async fn append_document_updates(
             .await;
     }
     if incoming_count > 0 {
-        state
-            .repo
-            .append_feed_event(document_event(id, "Edited document".to_string()))
-            .await?;
+        let event = document_event_for_document(&state, id, "Edited document".to_string()).await?;
+        state.repo.append_feed_event(event).await?;
     }
     Ok(Json(document))
 }
@@ -824,35 +828,85 @@ async fn handle_document_socket(
 ) {
     let mut rx = state.join_document_updates(&document_id).await;
     let (mut sender, mut receiver) = socket.split();
+    let (outbound_tx, mut outbound_rx) = mpsc::unbounded_channel::<String>();
+    let send_client_id = client_id.clone();
     let send_task = tokio::spawn(async move {
-        while let Ok(update) = rx.recv().await {
-            if update.client_id == client_id {
-                continue;
-            }
-            let message = json!({ "update": update }).to_string();
-            if sender.send(Message::Text(message.into())).await.is_err() {
-                break;
+        loop {
+            tokio::select! {
+                Ok(update) = rx.recv() => {
+                    if update.client_id == send_client_id {
+                        continue;
+                    }
+                    let message = json!({ "kind": "update", "update": update }).to_string();
+                    if sender.send(Message::Text(message.into())).await.is_err() {
+                        break;
+                    }
+                }
+                Some(message) = outbound_rx.recv() => {
+                    if sender.send(Message::Text(message.into())).await.is_err() {
+                        break;
+                    }
+                }
+                else => break,
             }
         }
     });
 
     while let Some(Ok(message)) = receiver.next().await {
         if let Message::Text(text) = message {
-            if let Ok(update) = serde_json::from_str::<CrdtUpdate>(&text) {
-                if state
-                    .repo
-                    .append_document_update(update.clone())
-                    .await
-                    .is_ok()
-                {
-                    let _ = state
-                        .repo
-                        .append_feed_event(document_event(
+            let update = serde_json::from_str::<serde_json::Value>(&text)
+                .ok()
+                .and_then(|value| {
+                    value
+                        .get("update")
+                        .cloned()
+                        .and_then(|update| serde_json::from_value::<CrdtUpdate>(update).ok())
+                })
+                .or_else(|| serde_json::from_str::<CrdtUpdate>(&text).ok());
+            if let Some(update) = update {
+                if update.document_id.to_string() != document_id {
+                    let _ = outbound_tx.send(
+                        json!({
+                            "kind": "error",
+                            "updateId": update.id,
+                            "message": "document update was sent to the wrong document room"
+                        })
+                        .to_string(),
+                    );
+                    continue;
+                }
+                match state.repo.append_document_update(update.clone()).await {
+                    Ok(document) => {
+                        if let Ok(event) = document_event_for_document(
+                            &state,
                             update.document_id,
                             "Edited document".to_string(),
-                        ))
-                        .await;
-                    state.broadcast_document_update(&document_id, update).await;
+                        )
+                        .await
+                        {
+                            let _ = state.repo.append_feed_event(event).await;
+                        }
+                        let _ = outbound_tx.send(
+                            json!({
+                                "kind": "ack",
+                                "updateId": update.id,
+                                "documentId": update.document_id,
+                                "documentVersion": document.version,
+                            })
+                            .to_string(),
+                        );
+                        state.broadcast_document_update(&document_id, update).await;
+                    }
+                    Err(error) => {
+                        let _ = outbound_tx.send(
+                            json!({
+                                "kind": "error",
+                                "updateId": update.id,
+                                "message": error.to_string()
+                            })
+                            .to_string(),
+                        );
+                    }
                 }
             }
         }
@@ -941,6 +995,31 @@ fn document_event(document_id: Uuid, summary: String) -> FeedActivityEvent {
         short_id(document_id),
         None,
     )
+}
+
+async fn document_event_for_document(
+    state: &AppState,
+    document_id: Uuid,
+    summary: String,
+) -> AppResult<FeedActivityEvent> {
+    let note = state
+        .repo
+        .notes()
+        .await?
+        .into_iter()
+        .find(|note| note.document_id == document_id);
+    Ok(match note {
+        Some(note) => feed_event(
+            FeedActivityAction::DocumentEdited,
+            "notes",
+            format!("Edited \"{}\"", note.title),
+            "document",
+            document_id.to_string(),
+            note.title,
+            Some(note.workspace_id),
+        ),
+        None => document_event(document_id, summary),
+    })
 }
 
 fn feed_event(

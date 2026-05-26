@@ -46,7 +46,12 @@ export type PresenceChannel = {
 }
 
 export type DocumentUpdateChannel = {
-  connect(documentId: string, onUpdate: (update: CrdtUpdate) => void): () => void
+  connect(
+    documentId: string,
+    onUpdate: (update: CrdtUpdate) => void,
+    onAck?: (ack: { updateId: string; documentId: string; documentVersion?: number }) => void,
+    onError?: (error: { updateId?: string; message: string }) => void,
+  ): () => void
   publishUpdate(documentId: string, update: CrdtUpdate): boolean
 }
 
@@ -241,13 +246,13 @@ export function createWebSocketDocumentUpdates(baseUrl: string, clientId: string
     const socket = sockets.get(documentId)
     if (socket?.readyState !== WebSocket.OPEN) return false
     const updates = pending.get(documentId) ?? []
-    for (const update of updates) socket.send(JSON.stringify(update))
+    for (const update of updates) socket.send(JSON.stringify({ kind: 'update', update }))
     pending.delete(documentId)
     return true
   }
 
   return {
-    connect(documentId, onUpdate) {
+    connect(documentId, onUpdate, onAck, onError) {
       const url = `${baseUrl.replace(/^http/, 'ws')}/ws/documents/${documentId}?client_id=${encodeURIComponent(clientId)}`
       const socket = new WebSocket(url)
       sockets.set(documentId, socket)
@@ -255,7 +260,22 @@ export function createWebSocketDocumentUpdates(baseUrl: string, clientId: string
         flushPending(documentId)
       })
       socket.addEventListener('message', (event) => {
-        const payload = JSON.parse(String(event.data)) as { update?: CrdtUpdate }
+        const payload = JSON.parse(String(event.data)) as {
+          kind?: 'update' | 'ack' | 'error'
+          update?: CrdtUpdate
+          updateId?: string
+          documentId?: string
+          documentVersion?: number
+          message?: string
+        }
+        if (payload.kind === 'ack' && payload.updateId && payload.documentId) {
+          onAck?.({ updateId: payload.updateId, documentId: payload.documentId, documentVersion: payload.documentVersion })
+          return
+        }
+        if (payload.kind === 'error') {
+          onError?.({ updateId: payload.updateId, message: payload.message ?? 'Live document update failed.' })
+          return
+        }
         if (payload.update && payload.update.clientId !== clientId) onUpdate(payload.update)
       })
       return () => {
@@ -269,7 +289,7 @@ export function createWebSocketDocumentUpdates(baseUrl: string, clientId: string
         pending.set(documentId, [...(pending.get(documentId) ?? []), update])
         return false
       }
-      socket.send(JSON.stringify(update))
+      socket.send(JSON.stringify({ kind: 'update', update }))
       return true
     },
   }
