@@ -1,0 +1,49 @@
+name: Deploy Homelab
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release tag to deploy, for example v0.1.21
+        required: true
+        type: string
+
+jobs:
+  deploy:
+    if: secrets.HOMELAB_SSH_HOST != '' && secrets.HOMELAB_SSH_USER != '' && secrets.HOMELAB_SSH_KEY != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Download release assets
+        uses: robinraju/release-downloader@v1.11
+        with:
+          tag: ${{ inputs.version }}
+          fileName: |
+            docker-compose.yml
+            og-suite-server-docker-linux-amd64-${{ inputs.version }}.tar.gz
+
+      - name: Setup SSH key
+        shell: bash
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "${{ secrets.HOMELAB_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "${{ secrets.HOMELAB_SSH_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Copy assets
+        shell: bash
+        run: |
+          scp docker-compose.yml \
+              "og-suite-server-docker-linux-amd64-${{ inputs.version }}.tar.gz" \
+              "${{ secrets.HOMELAB_SSH_USER }}@${{ secrets.HOMELAB_SSH_HOST }}:~/Projects/og-suite/"
+
+      - name: Restart homelab service
+        shell: bash
+        run: |
+          ssh "${{ secrets.HOMELAB_SSH_USER }}@${{ secrets.HOMELAB_SSH_HOST }}" "
+            cd ~/Projects/og-suite && \
+            docker load -i og-suite-server-docker-linux-amd64-${{ inputs.version }}.tar.gz && \
+            docker compose up -d && \
+            curl -sf http://127.0.0.1:8080/api/v1/system/version
+          "

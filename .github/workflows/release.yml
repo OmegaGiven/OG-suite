@@ -1,0 +1,116 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Derive version
+        id: version
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            echo "version=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=v0.0.0-dev" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Backend tests
+        run: cargo test --manifest-path backend/Cargo.toml
+
+      - name: Build suite
+        run: npm run build --workspace @og-suite/suite
+
+      - name: Build notes web
+        run: OG_NOTES_BASE=/notes/ npm run build --workspace @og-suite/notes
+
+      - name: Prepare release directory
+        shell: bash
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          mkdir -p "release-artifacts/${VERSION}"
+          cp docker-compose.yml "release-artifacts/${VERSION}/docker-compose.yml"
+          tar -C apps/notes/dist -czf "release-artifacts/${VERSION}/og-notes-web-${VERSION}.tar.gz" .
+
+      - name: Build server image tarball
+        shell: bash
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          docker build --platform linux/amd64 -t "og-suite:${VERSION#v}" .
+          docker save "og-suite:${VERSION#v}" | gzip > "release-artifacts/${VERSION}/og-suite-server-docker-linux-amd64-${VERSION}.tar.gz"
+
+      - name: Upload workflow artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ steps.version.outputs.version }}
+          path: release-artifacts/${{ steps.version.outputs.version }}/
+
+      - name: Publish GitHub release assets
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release-artifacts/${{ steps.version.outputs.version }}/docker-compose.yml
+            release-artifacts/${{ steps.version.outputs.version }}/og-notes-web-${{ steps.version.outputs.version }}.tar.gz
+            release-artifacts/${{ steps.version.outputs.version }}/og-suite-server-docker-linux-amd64-${{ steps.version.outputs.version }}.tar.gz
+
+  deploy-homelab:
+    needs: build-release
+    if: github.ref_type == 'tag' && secrets.HOMELAB_SSH_HOST != '' && secrets.HOMELAB_SSH_USER != '' && secrets.HOMELAB_SSH_KEY != ''
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: release-${{ needs.build-release.outputs.version }}
+          path: release-artifacts/${{ needs.build-release.outputs.version }}
+
+      - name: Setup SSH key
+        shell: bash
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "${{ secrets.HOMELAB_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "${{ secrets.HOMELAB_SSH_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Copy artifacts to homelab
+        shell: bash
+        run: |
+          VERSION="${{ needs.build-release.outputs.version }}"
+          scp "release-artifacts/${VERSION}/docker-compose.yml" \
+              "release-artifacts/${VERSION}/og-suite-server-docker-linux-amd64-${VERSION}.tar.gz" \
+              "${{ secrets.HOMELAB_SSH_USER }}@${{ secrets.HOMELAB_SSH_HOST }}:~/Projects/og-suite/"
+
+      - name: Deploy on homelab
+        shell: bash
+        run: |
+          VERSION="${{ needs.build-release.outputs.version }}"
+          ssh "${{ secrets.HOMELAB_SSH_USER }}@${{ secrets.HOMELAB_SSH_HOST }}" "
+            cd ~/Projects/og-suite && \
+            docker load -i og-suite-server-docker-linux-amd64-${VERSION}.tar.gz && \
+            docker compose up -d
+          "

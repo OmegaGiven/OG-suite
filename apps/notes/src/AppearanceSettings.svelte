@@ -28,7 +28,7 @@
   type SavedAppearanceTheme = AppearanceTheme
 
   const savedThemeStorageKey = 'og-suite:appearance-themes'
-  const clientVersion = import.meta.env.VITE_OG_APP_VERSION ?? '0.1.21'
+  const clientVersion = import.meta.env.VITE_OG_APP_VERSION ?? '0.1.22'
 
   let backgroundImageInput: HTMLInputElement | null = null
   let backgroundTextureInput: HTMLInputElement | null = null

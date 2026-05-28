@@ -5,6 +5,7 @@ COPY apps ./apps
 COPY packages ./packages
 RUN npm ci
 RUN npm run build --workspace @og-suite/suite
+RUN OG_NOTES_BASE=/notes/ npm run build --workspace @og-suite/notes
 
 FROM rust:1-bookworm AS backend
 WORKDIR /app
@@ -18,8 +19,10 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/*
 COPY --from=backend /app/backend/target/release/og-suite-backend /usr/local/bin/og-suite-backend
 COPY --from=web /app/apps/suite/dist /app/public
+COPY --from=web /app/apps/notes/dist /app/notes-public
 ENV OG_SUITE_BIND=0.0.0.0:8080
 ENV OG_SUITE_STATIC_DIR=/app/public
+ENV OG_SUITE_NOTES_STATIC_DIR=/app/notes-public
 ENV OG_SUITE_DATA_DIR=/app/data
 EXPOSE 8080
 CMD ["og-suite-backend"]

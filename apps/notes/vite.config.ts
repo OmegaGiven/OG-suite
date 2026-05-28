@@ -14,6 +14,7 @@ const alias = [
 ]
 
 export default defineConfig({
+  base: process.env.OG_NOTES_BASE ?? '/',
   plugins: [svelte()],
   resolve: { alias },
 })

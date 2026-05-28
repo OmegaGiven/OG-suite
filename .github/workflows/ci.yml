@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Backend tests
+        run: cargo test --manifest-path backend/Cargo.toml
+
+      - name: Notes check
+        run: npm run check --workspace @og-suite/notes
+
+      - name: Suite check
+        run: npm run check --workspace @og-suite/suite
+
+      - name: Notes build
+        run: npm run build --workspace @og-suite/notes
+
+      - name: Suite build
+        run: npm run build --workspace @og-suite/suite
+
+      - name: Sync regression
+        run: npm run test:sync-regression -- --cases=selection

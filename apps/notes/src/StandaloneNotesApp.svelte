@@ -5,7 +5,12 @@
   import NotesApp from './NotesApp.svelte'
   import { createLocalOnlyRuntime, createStandaloneRuntime } from './runtime'
 
-  const defaultServerUrl = 'http://127.0.0.1:8080'
+  const defaultServerUrl = (() => {
+    if (typeof window === 'undefined') return 'http://127.0.0.1:8080'
+    if (window.location.protocol === 'file:') return 'http://127.0.0.1:8080'
+    if (window.location.hostname === 'localhost') return 'http://127.0.0.1:8080'
+    return window.location.origin
+  })()
   const localModeKey = 'og-suite:notes:local-only'
   const connectedServersKey = 'og-suite:notes:connected-servers'
   const canUseLocalOnly = typeof window !== 'undefined' && ('__TAURI_INTERNALS__' in window || '__TAURI__' in window)
