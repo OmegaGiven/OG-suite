@@ -1,15 +1,15 @@
 import { chromium } from '@playwright/test'
+import { createStressBrowserLaunchOptions } from './lib/stress-browser.mjs'
 
 const appUrl = process.env.OG_STRESS_APP_URL ?? 'http://localhost:5173/?stress=switching'
 const apiUrl = process.env.OG_STRESS_API_URL ?? 'http://127.0.0.1:8080'
-const bravePath = '/Applications/Brave Browser.app/Contents/MacOS/Brave Browser'
 const titleA = `Switch Stress A ${Date.now()}`
 const titleB = `Switch Stress B ${Date.now()}`
 const session = await getStressSession()
 
 const noteB = await createStressNote(titleB, 'Note B seed.\n')
 const noteA = await createStressNote(titleA, 'Note A seed.\n')
-const browser = await chromium.launch({ executablePath: bravePath, headless: true })
+const browser = await chromium.launch(createStressBrowserLaunchOptions())
 
 try {
   const desktop = await browser.newContext({ viewport: { width: 1280, height: 860 } })

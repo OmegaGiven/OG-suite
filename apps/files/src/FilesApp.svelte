@@ -1,5 +1,14 @@
 <script lang="ts">
-  import type { AudioRecording, CrdtDocumentState, Note } from '@og-suite/contracts'
+  import type {
+    AudioRecording,
+    CreateDriveFileRequest,
+    CrdtDocumentState,
+    DriveFile,
+    DriveFolder,
+    Note,
+    UpdateDriveFileRequest,
+    UpdateDriveFolderRequest,
+  } from '@og-suite/contracts'
   import { createRuntimeId } from '@og-suite/runtime'
   import type { RuntimeServices } from '@og-suite/runtime'
   import ActionBar from '@og-suite/ui/ActionBar'
@@ -32,7 +41,7 @@
     requestId: number
   }
 
-  type DriveFile = {
+  type DriveEntry = {
     id: string
     name: string
     path: string
@@ -40,20 +49,10 @@
     sizeBytes: number
     createdAt: string
     updatedAt: string
-  }
-
-  type DriveEntry = DriveFile & {
     source: 'drive' | 'note' | 'audio'
     sourceId: string
     canManage: boolean
     canDownload: boolean
-  }
-
-  type DriveFolder = {
-    id: string
-    path: string
-    name: string
-    createdAt: string
   }
 
   type TypeBucket = {
@@ -65,7 +64,6 @@
 
   type FileSortMode = 'name-asc' | 'name-desc' | 'size-desc' | 'size-asc'
 
-  const metadataKey = 'og-suite:files:metadata'
   const dbName = 'og-suite-files'
   const storeName = 'file-blobs'
 
@@ -88,6 +86,7 @@
   let sortMode: FileSortMode = 'name-asc'
   let sortMenuOpen = false
   let favoriteFileIds: string[] = []
+  $: serverDriveEnabled = mode === 'suite'
 
   $: driveEntries = files.map((file): DriveEntry => ({
     ...file,
@@ -152,9 +151,9 @@
 
   onMount(() => {
     void services.clientId
-    loadMetadata()
+    if (!serverDriveEnabled) loadMetadata()
     void refreshLinkedFiles()
-    void refreshStorageEstimate()
+    if (!serverDriveEnabled) void refreshStorageEstimate()
   })
 
   function selectSuiteApp(appId: string) {
@@ -162,7 +161,7 @@
   }
 
   function loadMetadata() {
-    const raw = localStorage.getItem(metadataKey)
+    const raw = localStorage.getItem('og-suite:files:metadata')
     if (!raw) return
     try {
       const payload = JSON.parse(raw) as { files?: DriveFile[]; folders?: DriveFolder[]; selectedFileId?: string; favoriteFileIds?: string[] }
@@ -176,15 +175,20 @@
   }
 
   function saveMetadata() {
-    localStorage.setItem(metadataKey, JSON.stringify({ files, folders, selectedFileId, favoriteFileIds }))
+    if (serverDriveEnabled) return
+    localStorage.setItem('og-suite:files:metadata', JSON.stringify({ files, folders, selectedFileId, favoriteFileIds }))
   }
 
   async function refreshLinkedFiles() {
     try {
-      const [nextNotes, nextAudioRecordings] = await Promise.all([
+      const [nextFiles, nextFolders, nextNotes, nextAudioRecordings] = await Promise.all([
+        serverDriveEnabled ? services.api.get<DriveFile[]>('/api/v1/files') : Promise.resolve(files),
+        serverDriveEnabled ? services.api.get<DriveFolder[]>('/api/v1/files/folders') : Promise.resolve(folders),
         services.api.get<Note[]>('/api/v1/notes'),
         services.api.get<AudioRecording[]>('/api/v1/audio/recordings'),
       ])
+      files = nextFiles
+      folders = nextFolders
       notes = nextNotes
       audioRecordings = nextAudioRecordings
       error = ''
@@ -205,13 +209,21 @@
       error = 'That folder already exists.'
       return
     }
-    const folder = {
-      id: createRuntimeId('folder'),
-      path,
-      name: folderName(path),
-      createdAt: new Date().toISOString(),
+    if (serverDriveEnabled) {
+      const folder = await services.api.post<DriveFolder>('/api/v1/files/folders', { path })
+      folders = [...folders.filter((item) => item.id !== folder.id), folder].sort((left, right) => left.path.localeCompare(right.path))
+    } else {
+      const folder = {
+        id: createRuntimeId('folder'),
+        path,
+        name: folderName(path),
+        ownerId: 'local-user',
+        workspaceId: 'local',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      }
+      folders = [...folders, folder].sort((left, right) => left.path.localeCompare(right.path))
     }
-    folders = [...folders, folder].sort((left, right) => left.path.localeCompare(right.path))
     activeFolderPath = path
     selectedFolderPath = path
     statusMessage = `Created folder ${path}.`
@@ -284,6 +296,23 @@
     if (uploadInputElement) uploadInputElement.value = ''
     if (!uploadFiles.length) return
     error = ''
+    if (serverDriveEnabled) {
+      const created: DriveFile[] = []
+      for (const file of uploadFiles) {
+        const payload: CreateDriveFileRequest = {
+          name: file.name,
+          path: activeFolderPath,
+          mimeType: file.type || inferMimeType(file.name),
+          sizeBytes: file.size,
+          dataUrl: await fileToDataUrl(file),
+        }
+        created.push(await services.api.post<DriveFile>('/api/v1/files', payload))
+      }
+      files = [...created, ...files.filter((item) => !created.some((createdFile) => createdFile.id === item.id))]
+      selectedFileId = created[0]?.id ?? selectedFileId
+      statusMessage = `Uploaded ${created.length} file${created.length === 1 ? '' : 's'}.`
+      return
+    }
     const db = await openDb()
     const now = new Date().toISOString()
     const incoming: DriveFile[] = []
@@ -296,6 +325,8 @@
         path: activeFolderPath,
         mimeType: file.type || inferMimeType(file.name),
         sizeBytes: file.size,
+        ownerId: 'local-user',
+        workspaceId: 'local',
         createdAt: now,
         updatedAt: now,
       })
@@ -320,8 +351,13 @@
       await services.api.patch<AudioRecording>(`/api/v1/audio/recordings/${selectedFile.sourceId}`, { title: name })
       await refreshLinkedFiles()
     } else {
-      files = files.map((file) => file.id === selectedFile.id ? { ...file, name, updatedAt: new Date().toISOString() } : file)
-      saveMetadata()
+      if (serverDriveEnabled) {
+        await services.api.patch<DriveFile>(`/api/v1/files/${selectedFile.sourceId}`, { name } satisfies UpdateDriveFileRequest)
+        await refreshLinkedFiles()
+      } else {
+        files = files.map((file) => file.id === selectedFile.id ? { ...file, name, updatedAt: new Date().toISOString() } : file)
+        saveMetadata()
+      }
     }
     statusMessage = 'File renamed.'
   }
@@ -336,13 +372,18 @@
       await services.api.delete(`/api/v1/audio/recordings/${selectedFile.sourceId}`)
       await refreshLinkedFiles()
     } else {
-      const deletedId = selectedFile.id
-      const db = await openDb()
-      await idbRequest(db.transaction(storeName, 'readwrite').objectStore(storeName).delete(deletedId))
-      db.close()
-      files = files.filter((file) => file.id !== deletedId)
-      saveMetadata()
-      await refreshStorageEstimate()
+      if (serverDriveEnabled) {
+        await services.api.delete(`/api/v1/files/${selectedFile.sourceId}`)
+        await refreshLinkedFiles()
+      } else {
+        const deletedId = selectedFile.id
+        const db = await openDb()
+        await idbRequest(db.transaction(storeName, 'readwrite').objectStore(storeName).delete(deletedId))
+        db.close()
+        files = files.filter((file) => file.id !== deletedId)
+        saveMetadata()
+        await refreshStorageEstimate()
+      }
     }
     selectedFileId = allFiles.find((file) => file.id !== selectedFile.id)?.id ?? ''
     statusMessage = 'File deleted.'
@@ -360,6 +401,10 @@
     }
     if (selectedFile.source === 'audio') {
       window.location.href = backendUrl(`/api/v1/audio/recordings/${selectedFile.sourceId}/audio`)
+      return
+    }
+    if (serverDriveEnabled) {
+      window.location.href = backendUrl(`/api/v1/files/${selectedFile.sourceId}/asset`)
       return
     }
     const blob = await getBlob(selectedFile.sourceId)
@@ -392,6 +437,10 @@
       })
       return
     }
+    if (serverDriveEnabled) {
+      window.open(backendUrl(`/api/v1/files/${selectedFile.sourceId}/asset`), '_blank', 'noopener,noreferrer')
+      return
+    }
     const blob = await getBlob(selectedFile.sourceId)
     if (!blob) {
       error = 'File data is missing from local storage.'
@@ -416,8 +465,13 @@
       await refreshLinkedFiles()
     } else {
       if (isLinkedSystemPath(normalized)) return
-      files = files.map((item) => item.id === file.sourceId ? { ...item, path: normalized, updatedAt: new Date().toISOString() } : item)
-      saveMetadata()
+      if (serverDriveEnabled) {
+        await services.api.patch<DriveFile>(`/api/v1/files/${file.sourceId}`, { path: normalized } satisfies UpdateDriveFileRequest)
+        await refreshLinkedFiles()
+      } else {
+        files = files.map((item) => item.id === file.sourceId ? { ...item, path: normalized, updatedAt: new Date().toISOString() } : item)
+        saveMetadata()
+      }
     }
     activeFolderPath = normalized
   }
@@ -429,14 +483,33 @@
     if (isLinkedSystemPath(source) || isLinkedSystemPath(target)) return
     const nextPath = normalizeFolderPath(`${target}/${folderName(source)}`)
     if (source === nextPath) return
-    folders = folders.map((folder) => {
-      const path = normalizeFolderPath(folder.path)
-      return isSameOrNestedPath(path, source) ? { ...folder, path: remapPath(path, source, nextPath), name: folderName(remapPath(path, source, nextPath)) } : folder
-    })
-    files = files.map((file) => {
-      const path = normalizeFolderPath(file.path)
-      return isSameOrNestedPath(path, source) ? { ...file, path: remapPath(path, source, nextPath), updatedAt: new Date().toISOString() } : file
-    })
+    if (serverDriveEnabled) {
+      const folderUpdates = folders
+        .filter((folder) => isSameOrNestedPath(folder.path, source))
+        .map((folder) =>
+          services.api.patch<DriveFolder>(`/api/v1/files/folders/${folder.id}`, {
+            path: remapPath(folder.path, source, nextPath),
+          } satisfies UpdateDriveFolderRequest),
+        )
+      const fileUpdates = files
+        .filter((file) => isSameOrNestedPath(file.path, source))
+        .map((file) =>
+          services.api.patch<DriveFile>(`/api/v1/files/${file.id}`, {
+            path: remapPath(file.path, source, nextPath),
+          } satisfies UpdateDriveFileRequest),
+        )
+      await Promise.all([...folderUpdates, ...fileUpdates])
+      await refreshLinkedFiles()
+    } else {
+      folders = folders.map((folder) => {
+        const path = normalizeFolderPath(folder.path)
+        return isSameOrNestedPath(path, source) ? { ...folder, path: remapPath(path, source, nextPath), name: folderName(remapPath(path, source, nextPath)) } : folder
+      })
+      files = files.map((file) => {
+        const path = normalizeFolderPath(file.path)
+        return isSameOrNestedPath(path, source) ? { ...file, path: remapPath(path, source, nextPath), updatedAt: new Date().toISOString() } : file
+      })
+    }
     activeFolderPath = nextPath
     selectedFolderPath = nextPath
     saveMetadata()
@@ -450,6 +523,7 @@
   }
 
   async function clearMissingFile() {
+    if (serverDriveEnabled) return
     if (!selectedFile) return
     files = files.filter((file) => file.id !== selectedFile.sourceId)
     selectedFileId = allFiles[0]?.id ?? ''
@@ -457,7 +531,23 @@
   }
 
   async function refreshStorageEstimate() {
+    if (serverDriveEnabled) {
+      storageEstimate = null
+      return
+    }
     storageEstimate = navigator.storage?.estimate ? await navigator.storage.estimate() : null
+  }
+
+  async function fileToDataUrl(file: File) {
+    return await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onerror = () => reject(reader.error ?? new Error('Could not read file'))
+      reader.onload = () => {
+        if (typeof reader.result === 'string') resolve(reader.result)
+        else reject(new Error('Could not encode file'))
+      }
+      reader.readAsDataURL(file)
+    })
   }
 
   async function openDb() {
@@ -712,18 +802,25 @@
     <section class="storage-panel">
       <div class="panel-heading">
         <div>
-          <h2>Drive Storage</h2>
+          <h2>{serverDriveEnabled ? 'Server Drive' : 'Drive Storage'}</h2>
           <span>{allFiles.length} files · {navigatorFolders.length} folders</span>
         </div>
         <strong>{formatBytes(totalBytes)}</strong>
       </div>
-      <div class="storage-meter" aria-label="Browser storage usage">
-        <span style={`width: ${browserUsagePercent}%`}></span>
-      </div>
-      <div class="storage-meta">
-        <span>{formatBytes(localBytes)} uploaded locally · {formatBytes(browserUsedBytes)} browser storage used</span>
-        <span>{browserQuotaBytes ? `${formatBytes(browserQuotaBytes)} available in browser quota` : 'Browser quota unavailable'}</span>
-      </div>
+      {#if !serverDriveEnabled}
+        <div class="storage-meter" aria-label="Browser storage usage">
+          <span style={`width: ${browserUsagePercent}%`}></span>
+        </div>
+        <div class="storage-meta">
+          <span>{formatBytes(localBytes)} uploaded locally · {formatBytes(browserUsedBytes)} browser storage used</span>
+          <span>{browserQuotaBytes ? `${formatBytes(browserQuotaBytes)} available in browser quota` : 'Browser quota unavailable'}</span>
+        </div>
+      {:else}
+        <div class="storage-meta">
+          <span>{formatBytes(files.reduce((sum, file) => sum + file.sizeBytes, 0))} stored in server drive.</span>
+          <span>Notes and Audio also appear here as linked server content.</span>
+        </div>
+      {/if}
       <div class="type-grid">
         {#each fileTypeBuckets as bucket}
           <article class="type-card">
@@ -735,7 +832,7 @@
           </article>
         {/each}
         {#if fileTypeBuckets.length === 0}
-          <p class="empty-copy">Upload files to see storage by type.</p>
+          <p class="empty-copy">{serverDriveEnabled ? 'Upload files or create folders to populate the server drive.' : 'Upload files to see storage by type.'}</p>
         {/if}
       </div>
     </section>
@@ -800,7 +897,7 @@
       {/if}
       {#if statusMessage}
         <p class="status-copy">{statusMessage}</p>
-      {/if}
+  {/if}
       {#if error}
         <p class="error-copy">{error}</p>
       {/if}

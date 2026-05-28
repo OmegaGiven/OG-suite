@@ -1,8 +1,8 @@
 import { chromium } from '@playwright/test'
+import { createStressBrowserLaunchOptions } from './lib/stress-browser.mjs'
 
 const appUrl = process.env.OG_STRESS_APP_URL ?? 'http://localhost:5173/?stress=rich'
 const apiUrl = process.env.OG_STRESS_API_URL ?? 'http://127.0.0.1:8080'
-const bravePath = '/Applications/Brave Browser.app/Contents/MacOS/Brave Browser'
 
 const desktopText =
   'Desktop rich typing stays stable while the editor scrolls and collaborator updates arrive. Desktop keeps typing after the first remote merge. '
@@ -15,7 +15,7 @@ const peerParts = ['Peer rich typing', 'collaborator updates arrive', 'Peer keep
 const mobileParts = ['Mobile rich typing', 'collaborator updates arrive', 'Mobile keeps typing', 'first remote merge']
 
 const session = await getStressSession()
-const browser = await chromium.launch({ executablePath: bravePath, headless: true })
+const browser = await chromium.launch(createStressBrowserLaunchOptions())
 
 try {
   const desktopDesktop = await runScenario({

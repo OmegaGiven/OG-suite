@@ -468,6 +468,64 @@ pub struct CreateAudioFolderRequest {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct DriveFile {
+    pub id: Uuid,
+    pub name: String,
+    pub path: String,
+    pub mime_type: String,
+    pub size_bytes: u64,
+    pub owner_id: String,
+    pub workspace_id: String,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    pub deleted_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DriveFolder {
+    pub id: Uuid,
+    pub path: String,
+    pub name: String,
+    pub owner_id: String,
+    pub workspace_id: String,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    pub deleted_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateDriveFileRequest {
+    pub name: String,
+    #[serde(default = "default_path")]
+    pub path: String,
+    pub mime_type: String,
+    pub size_bytes: u64,
+    pub data_url: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateDriveFileRequest {
+    pub name: Option<String>,
+    pub path: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateDriveFolderRequest {
+    pub path: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateDriveFolderRequest {
+    pub path: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Note {
     pub id: Uuid,
     pub document_id: Uuid,

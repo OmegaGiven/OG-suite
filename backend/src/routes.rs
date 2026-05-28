@@ -94,6 +94,22 @@ pub fn router(state: AppState) -> Router {
             "/api/v1/audio/recordings/{id}/transcript.srt",
             get(download_audio_transcript_srt),
         )
+        .route("/api/v1/files", get(list_drive_files).post(create_drive_file))
+        .route(
+            "/api/v1/files/folders",
+            get(list_drive_folders).post(create_drive_folder),
+        )
+        .route(
+            "/api/v1/files/folders/{id}",
+            patch(update_drive_folder).delete(delete_drive_folder),
+        )
+        .route(
+            "/api/v1/files/{id}",
+            get(get_drive_file)
+                .patch(update_drive_file)
+                .delete(delete_drive_file),
+        )
+        .route("/api/v1/files/{id}/asset", get(get_drive_asset))
         .route("/api/v1/note-folders", get(list_note_folders))
         .route("/api/v1/notes", get(list_notes).post(create_note))
         .route("/api/v1/notes/{id}/metadata", patch(update_note_metadata))
@@ -661,6 +677,88 @@ async fn download_audio_transcript_srt(
         .into_response())
 }
 
+async fn list_drive_files(State(state): State<AppState>) -> AppResult<Json<Vec<DriveFile>>> {
+    Ok(Json(state.repo.drive_files().await?))
+}
+
+async fn list_drive_folders(State(state): State<AppState>) -> AppResult<Json<Vec<DriveFolder>>> {
+    Ok(Json(state.repo.drive_folders().await?))
+}
+
+async fn create_drive_folder(
+    State(state): State<AppState>,
+    Json(payload): Json<CreateDriveFolderRequest>,
+) -> AppResult<Json<DriveFolder>> {
+    Ok(Json(state.repo.create_drive_folder(payload).await?))
+}
+
+async fn update_drive_folder(
+    Path(id): Path<Uuid>,
+    State(state): State<AppState>,
+    Json(payload): Json<UpdateDriveFolderRequest>,
+) -> AppResult<Json<DriveFolder>> {
+    Ok(Json(state.repo.update_drive_folder(id, payload).await?))
+}
+
+async fn delete_drive_folder(
+    Path(id): Path<Uuid>,
+    State(state): State<AppState>,
+) -> AppResult<StatusCode> {
+    state.repo.delete_drive_folder(id).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn create_drive_file(
+    State(state): State<AppState>,
+    Json(payload): Json<CreateDriveFileRequest>,
+) -> AppResult<Json<DriveFile>> {
+    Ok(Json(state.repo.create_drive_file(payload).await?))
+}
+
+async fn get_drive_file(
+    Path(id): Path<Uuid>,
+    State(state): State<AppState>,
+) -> AppResult<Json<DriveFile>> {
+    Ok(Json(state.repo.drive_file(id).await?))
+}
+
+async fn update_drive_file(
+    Path(id): Path<Uuid>,
+    State(state): State<AppState>,
+    Json(payload): Json<UpdateDriveFileRequest>,
+) -> AppResult<Json<DriveFile>> {
+    Ok(Json(state.repo.update_drive_file(id, payload).await?))
+}
+
+async fn get_drive_asset(
+    Path(id): Path<Uuid>,
+    State(state): State<AppState>,
+) -> AppResult<Response> {
+    let file = state.repo.drive_file(id).await?;
+    let data_url = state.repo.drive_asset(id).await?;
+    let (mime_type, bytes) = decode_data_url(&data_url)?;
+    let filename = attachment_filename(&file.name);
+    Ok((
+        [
+            (CONTENT_TYPE, mime_type),
+            (
+                CONTENT_DISPOSITION,
+                format!("attachment; filename=\"{filename}\""),
+            ),
+        ],
+        Body::from(bytes),
+    )
+        .into_response())
+}
+
+async fn delete_drive_file(
+    Path(id): Path<Uuid>,
+    State(state): State<AppState>,
+) -> AppResult<StatusCode> {
+    state.repo.delete_drive_file(id).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
 async fn retry_audio_transcription(
     Path(id): Path<Uuid>,
     State(state): State<AppState>,
@@ -1123,7 +1221,35 @@ fn format_srt_time(ms: u64) -> String {
 }
 
 fn caption_filename(title: &str, extension: &str) -> String {
-    let stem = title
+    let stem = sanitize_filename_stem(title);
+    format!(
+        "{}.{}",
+        if stem.is_empty() { "transcript" } else { &stem },
+        extension
+    )
+}
+
+fn attachment_filename(name: &str) -> String {
+    let trimmed = name.trim();
+    if trimmed.is_empty() {
+        return "download".to_string();
+    }
+    trimmed
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.') {
+                ch
+            } else {
+                '-'
+            }
+        })
+        .collect::<String>()
+        .trim_matches('-')
+        .to_string()
+}
+
+fn sanitize_filename_stem(title: &str) -> String {
+    title
         .chars()
         .map(|ch| {
             if ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' {
@@ -1134,12 +1260,7 @@ fn caption_filename(title: &str, extension: &str) -> String {
         })
         .collect::<String>()
         .trim_matches('-')
-        .to_string();
-    format!(
-        "{}.{}",
-        if stem.is_empty() { "transcript" } else { &stem },
-        extension
-    )
+        .to_string()
 }
 
 fn bearer_token(headers: &HeaderMap) -> AppResult<String> {

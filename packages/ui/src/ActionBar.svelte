@@ -26,6 +26,8 @@
     border: 1px solid color-mix(in srgb, var(--border, var(--og-border)) 84%, transparent);
     border-radius: var(--field-radius, var(--og-field-radius));
     background: var(--action-bar-bg, var(--og-action-bar-bg));
+    background-image: var(--nav-texture, var(--og-nav-texture, none));
+    background-blend-mode: soft-light;
     color: var(--text, var(--og-text));
     backdrop-filter: blur(14px);
     min-width: 0;

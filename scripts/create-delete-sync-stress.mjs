@@ -1,13 +1,10 @@
 import { chromium } from '@playwright/test'
-import fs from 'node:fs'
-
+import { createStressBrowserLaunchOptions } from './lib/stress-browser.mjs'
 const appUrl = process.env.OG_STRESS_APP_URL ?? 'http://localhost:5173/?stress=create-delete'
 const apiUrl = process.env.OG_STRESS_API_URL ?? 'http://127.0.0.1:8080'
-const bravePath = '/Applications/Brave Browser.app/Contents/MacOS/Brave Browser'
-const launchOptions = fs.existsSync(bravePath) ? { executablePath: bravePath, headless: true } : { headless: true }
 const cycles = Number.parseInt(process.env.OG_STRESS_CREATE_DELETE_CYCLES ?? '3', 10)
 const session = await getStressSession()
-const browser = await chromium.launch(launchOptions)
+const browser = await chromium.launch(createStressBrowserLaunchOptions())
 const createdTitles = []
 
 try {

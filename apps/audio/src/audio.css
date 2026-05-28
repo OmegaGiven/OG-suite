@@ -38,6 +38,8 @@
   border: 1px solid var(--border, var(--og-border));
   border-radius: var(--panel-radius, var(--og-panel-radius));
   background: var(--panel-surface, var(--og-surface));
+  background-image: var(--panel-texture, var(--og-panel-texture, none));
+  background-blend-mode: soft-light;
   box-shadow: var(--shadow, var(--og-shadow));
   backdrop-filter: blur(18px);
 }
@@ -516,6 +518,8 @@ button:disabled {
     border: 1px solid color-mix(in srgb, var(--border, var(--og-border)) 78%, transparent);
     border-radius: var(--field-radius, var(--og-field-radius));
     background: var(--action-bar-bg, var(--og-action-bar-bg));
+    background-image: var(--nav-texture, var(--og-nav-texture, none));
+    background-blend-mode: soft-light;
   }
 
   .recorder-heading-actions {

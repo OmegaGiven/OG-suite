@@ -14,6 +14,7 @@
     normalizeFontFamilyName,
     normalizeTokens,
     saveStoredFonts,
+    texturePresets,
   } from '@og-suite/ui'
   import { onMount } from 'svelte'
 
@@ -27,9 +28,12 @@
   type SavedAppearanceTheme = AppearanceTheme
 
   const savedThemeStorageKey = 'og-suite:appearance-themes'
-  const clientVersion = import.meta.env.VITE_OG_APP_VERSION ?? '0.1.16'
+  const clientVersion = import.meta.env.VITE_OG_APP_VERSION ?? '0.1.21'
 
   let backgroundImageInput: HTMLInputElement | null = null
+  let backgroundTextureInput: HTMLInputElement | null = null
+  let panelTextureInput: HTMLInputElement | null = null
+  let navTextureInput: HTMLInputElement | null = null
   let themeImportInput: HTMLInputElement | null = null
   let fontImportInput: HTMLInputElement | null = null
   let activeLocationPicker = ''
@@ -46,6 +50,7 @@
   let currentUserId = ''
   let customFonts: CustomFont[] = loadStoredFonts()
   let fontStatus = ''
+  let textureStatus = ''
   let appearancePersistTimer: number | undefined
   let serverAppearanceLoaded = false
   $: gradientPointRows = tokens.backgroundGradients.flatMap((gradient) =>
@@ -392,6 +397,50 @@
       if (typeof reader.result === 'string') patch({ backgroundImage: reader.result })
     })
     reader.readAsDataURL(file)
+  }
+
+  function uploadTexture(target: 'backgroundTexture' | 'panelTexture' | 'navTexture', file: File | undefined) {
+    if (!file) return
+    const reader = new FileReader()
+    reader.addEventListener('load', () => {
+      if (typeof reader.result !== 'string') return
+      patch({ [target]: `url("${reader.result}")` } as Partial<DesignTokens>)
+      textureStatus = `Uploaded ${textureLabel(target).toLowerCase()} texture.`
+      clearTextureInput(target)
+    })
+    reader.readAsDataURL(file)
+  }
+
+  function clearTextureInput(target: 'backgroundTexture' | 'panelTexture' | 'navTexture') {
+    const input = target === 'backgroundTexture' ? backgroundTextureInput : target === 'panelTexture' ? panelTextureInput : navTextureInput
+    if (input) input.value = ''
+  }
+
+  function setTexture(target: 'backgroundTexture' | 'panelTexture' | 'navTexture', value: string) {
+    patch({ [target]: value } as Partial<DesignTokens>)
+  }
+
+  function textureValue(target: 'backgroundTexture' | 'panelTexture' | 'navTexture') {
+    return tokens[target]
+  }
+
+  function textureLabel(target: 'backgroundTexture' | 'panelTexture' | 'navTexture') {
+    if (target === 'backgroundTexture') return 'Background'
+    if (target === 'panelTexture') return 'Panel'
+    return 'Nav bar'
+  }
+
+  function texturePresetValue(value: string) {
+    if (value === texturePresets.glass) return 'glass'
+    if (value === texturePresets.paper) return 'paper'
+    if (value === texturePresets.none) return 'none'
+    return 'custom'
+  }
+
+  function selectTexturePreset(target: 'backgroundTexture' | 'panelTexture' | 'navTexture', preset: string) {
+    if (preset === 'glass') setTexture(target, texturePresets.glass)
+    if (preset === 'paper') setTexture(target, texturePresets.paper)
+    if (preset === 'none') setTexture(target, texturePresets.none)
   }
 
   function importFont(file: File | undefined) {
@@ -894,6 +943,65 @@
     </label>
     {#if tokens.backgroundImage}
       <div class="background-preview" style={`background-image: url("${tokens.backgroundImage}")`}></div>
+    {/if}
+  </section>
+
+  <section class="settings-card">
+    <h3>Textures</h3>
+    <div class="texture-grid">
+      {#each [
+        { key: 'backgroundTexture', input: () => backgroundTextureInput },
+        { key: 'panelTexture', input: () => panelTextureInput },
+        { key: 'navTexture', input: () => navTextureInput },
+      ] as textureControl}
+        <div class="texture-control">
+          <label class="settings-field">
+            <span>{textureLabel(textureControl.key as 'backgroundTexture' | 'panelTexture' | 'navTexture')}</span>
+            <select
+              value={texturePresetValue(textureValue(textureControl.key as 'backgroundTexture' | 'panelTexture' | 'navTexture'))}
+              on:change={(event) => selectTexturePreset(textureControl.key as 'backgroundTexture' | 'panelTexture' | 'navTexture', event.currentTarget.value)}
+            >
+              <option value="none">None</option>
+              <option value="glass">Glassy</option>
+              <option value="paper">Paper</option>
+              <option value="custom" disabled>Custom upload</option>
+            </select>
+          </label>
+          <div class="texture-preview" style={`background-image: ${textureValue(textureControl.key as 'backgroundTexture' | 'panelTexture' | 'navTexture')};`}></div>
+          <div class="settings-actions-inline">
+            <button class="icon-label-button" on:click={() => textureControl.input()?.click()}>
+              <span>Upload</span>
+            </button>
+            <button class="icon-label-button" on:click={() => setTexture(textureControl.key as 'backgroundTexture' | 'panelTexture' | 'navTexture', texturePresets.none)}>
+              <span>Clear</span>
+            </button>
+          </div>
+        </div>
+      {/each}
+    </div>
+    <input
+      bind:this={backgroundTextureInput}
+      class="hidden-file-input"
+      type="file"
+      accept="image/svg+xml,image/*,.svg"
+      on:change={(event) => uploadTexture('backgroundTexture', event.currentTarget.files?.[0])}
+    />
+    <input
+      bind:this={panelTextureInput}
+      class="hidden-file-input"
+      type="file"
+      accept="image/svg+xml,image/*,.svg"
+      on:change={(event) => uploadTexture('panelTexture', event.currentTarget.files?.[0])}
+    />
+    <input
+      bind:this={navTextureInput}
+      class="hidden-file-input"
+      type="file"
+      accept="image/svg+xml,image/*,.svg"
+      on:change={(event) => uploadTexture('navTexture', event.currentTarget.files?.[0])}
+    />
+    {#if textureStatus}
+      <div class="settings-empty">{textureStatus}</div>
     {/if}
   </section>
 

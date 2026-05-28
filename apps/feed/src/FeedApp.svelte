@@ -244,6 +244,8 @@
     border: 1px solid var(--border, var(--og-border));
     border-radius: var(--panel-radius, var(--og-panel-radius));
     background: var(--panel-surface, var(--og-surface));
+    background-image: var(--panel-texture, var(--og-panel-texture, none));
+    background-blend-mode: soft-light;
     box-shadow: var(--shadow, var(--og-shadow));
     backdrop-filter: blur(18px);
   }
@@ -312,6 +314,8 @@
     border: 1px solid color-mix(in srgb, var(--border, var(--og-border)) 74%, transparent);
     border-radius: max(6px, calc(var(--panel-radius, var(--og-panel-radius)) - 8px));
     background: var(--panel-surface-subtle, var(--og-surface-subtle));
+    background-image: var(--panel-texture, var(--og-panel-texture, none));
+    background-blend-mode: soft-light;
   }
 
   .favorite-item {

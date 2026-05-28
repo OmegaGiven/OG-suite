@@ -164,6 +164,8 @@
       padding: max(10px, env(safe-area-inset-top)) 10px calc(10px + env(safe-area-inset-bottom));
       border: 0;
       background: var(--panel-surface, var(--og-surface));
+      background-image: var(--panel-texture, var(--og-panel-texture, none));
+      background-blend-mode: soft-light;
       color: var(--text, var(--og-text));
       box-shadow: var(--shadow, var(--og-shadow));
       backdrop-filter: blur(18px);
@@ -181,6 +183,8 @@
       border: 1px solid color-mix(in srgb, var(--border, var(--og-border)) 78%, transparent);
       border-radius: var(--field-radius, var(--og-field-radius));
       background: var(--action-bar-bg, var(--og-action-bar-bg));
+      background-image: var(--nav-texture, var(--og-nav-texture, none));
+      background-blend-mode: soft-light;
       padding: 4px;
     }
 

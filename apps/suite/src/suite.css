@@ -3,8 +3,9 @@
   display: flex;
   flex-direction: column;
   background-color: var(--bg, var(--og-bg));
-  background-image: var(--bg-gradient, var(--og-bg-gradient));
+  background-image: var(--background-texture, var(--og-background-texture, none)), var(--bg-gradient, var(--og-bg-gradient));
   background-attachment: fixed;
+  background-blend-mode: soft-light, normal;
   color: var(--text, var(--og-text));
   font-family: var(--app-font-family, var(--og-font));
   isolation: isolate;
@@ -22,6 +23,8 @@
   border-bottom: 1px solid var(--border, var(--og-border));
   border-radius: 0;
   background: var(--nav-bg, var(--og-nav-bg));
+  background-image: var(--nav-texture, var(--og-nav-texture, none));
+  background-blend-mode: soft-light;
   backdrop-filter: blur(14px);
 }
 
@@ -244,6 +247,8 @@
   border: 1px solid var(--border, var(--og-border));
   border-radius: var(--panel-radius, var(--og-radius));
   background: var(--panel-surface, var(--og-surface));
+  background-image: var(--panel-texture, var(--og-panel-texture, none));
+  background-blend-mode: soft-light;
   color: var(--text, var(--og-text));
   box-shadow: var(--shadow, var(--og-shadow));
   backdrop-filter: blur(16px);

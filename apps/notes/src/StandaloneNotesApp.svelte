@@ -8,6 +8,7 @@
   const defaultServerUrl = 'http://127.0.0.1:8080'
   const localModeKey = 'og-suite:notes:local-only'
   const connectedServersKey = 'og-suite:notes:connected-servers'
+  const canUseLocalOnly = typeof window !== 'undefined' && ('__TAURI_INTERNALS__' in window || '__TAURI__' in window)
 
   type ConnectedServer = {
     id: string
@@ -29,12 +30,14 @@
   let backupStatus = ''
   let checking = true
   let session: CurrentSession | null = null
-  let localOnly = localStorage.getItem(localModeKey) === 'true'
+  let localOnly = canUseLocalOnly && localStorage.getItem(localModeKey) === 'true'
   let backupDialogOpen = false
   let serversDialogOpen = false
   let runtimeKey = 0
   let connectedServers: ConnectedServer[] = loadConnectedServers()
   let services: RuntimeServices = localOnly ? createLocalOnlyRuntime() : createStandaloneRuntime(serverUrl)
+
+  if (!canUseLocalOnly) localStorage.removeItem(localModeKey)
 
   $: activeServer = connectedServers.find((server) => server.active) ?? null
 
@@ -134,6 +137,7 @@
   }
 
   function continueLocally() {
+    if (!canUseLocalOnly) return
     error = ''
     backupStatus = ''
     localOnly = true
@@ -290,9 +294,11 @@
         <p class="standalone-auth-error">{error}</p>
       {/if}
       <button type="submit">Sign in</button>
-      <button class="standalone-auth-secondary" type="button" on:click={continueLocally}>
-        Continue without signing in
-      </button>
+      {#if canUseLocalOnly}
+        <button class="standalone-auth-secondary" type="button" on:click={continueLocally}>
+          Continue without signing in
+        </button>
+      {/if}
     </form>
   </main>
 {:else}

@@ -1,7 +1,7 @@
 import {
-  createBrowserLocalCache,
-  createBrowserSyncQueue,
   createHttpApiClient,
+  createMemoryLocalCache,
+  createMemorySyncQueue,
   createRuntimeId,
   createWebSocketDocumentUpdates,
   createWebSocketPresence,
@@ -18,11 +18,13 @@ export function createSuiteRuntime(): RuntimeServices {
   localStorage.setItem('og-suite:client-id', clientId)
   return {
     api: createHttpApiClient(baseUrl, () => localStorage.getItem('og-suite:auth:access-token')),
-    cache: createBrowserLocalCache('og-suite:suite:workspace'),
-    syncQueue: createBrowserSyncQueue('og-suite:suite:sync-queue'),
+    cache: createMemoryLocalCache(),
+    syncQueue: createMemorySyncQueue(),
     presence: createWebSocketPresence(baseUrl, clientId),
     documentUpdates: createWebSocketDocumentUpdates(baseUrl, clientId),
     tokens: loadStoredTokens(),
     clientId,
+    runtimeMode: 'remote',
+    serverUrl: baseUrl,
   }
 }

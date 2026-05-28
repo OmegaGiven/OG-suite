@@ -1,4 +1,5 @@
 import { chromium } from '@playwright/test'
+import { createStressBrowserLaunchOptions } from './lib/stress-browser.mjs'
 
 const appUrl = process.env.OG_STRESS_APP_URL ?? 'http://localhost:5173/?stress=100wpm'
 const apiUrl = process.env.OG_STRESS_API_URL ?? 'http://127.0.0.1:8080'
@@ -8,7 +9,6 @@ const desktopText =
   'Desktop burst one keeps typing while sync flushes in the background. Desktop burst two should not disappear after the server answers. Desktop burst three keeps caret position stable under heavy input.\n'
 const mobileText =
   'Mobile burst one keeps typing while sync flushes in the background. Mobile burst two should not disappear after the server answers. Mobile burst three keeps caret position stable under heavy input.\n'
-const bravePath = '/Applications/Brave Browser.app/Contents/MacOS/Brave Browser'
 
 const session = await getStressSession()
 const noteResponse = await fetch(`${apiUrl}/api/v1/notes`, {
@@ -21,7 +21,7 @@ if (!noteResponse.ok) {
   throw new Error(`Failed to create stress note: ${noteResponse.status} ${await noteResponse.text()}`)
 }
 
-const browser = await chromium.launch({ executablePath: bravePath, headless: true })
+const browser = await chromium.launch(createStressBrowserLaunchOptions())
 const desktop = await browser.newContext({ viewport: { width: 1280, height: 860 } })
 const mobile = await browser.newContext({
   viewport: { width: 390, height: 844 },

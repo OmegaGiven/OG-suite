@@ -58,6 +58,8 @@
       border: 1px solid color-mix(in srgb, var(--border, var(--og-border)) 78%, transparent);
       border-radius: var(--field-radius, var(--og-field-radius));
       background: var(--action-bar-bg, var(--og-action-bar-bg));
+      background-image: var(--nav-texture, var(--og-nav-texture, none));
+      background-blend-mode: soft-light;
       scroll-snap-type: x mandatory;
       scrollbar-width: none;
     }
@@ -100,6 +102,8 @@
       border: 1px solid var(--border, var(--og-border));
       border-radius: var(--field-radius, var(--og-field-radius));
       background: var(--action-bar-bg, var(--og-action-bar-bg));
+      background-image: var(--nav-texture, var(--og-nav-texture, none));
+      background-blend-mode: soft-light;
       color: var(--text, var(--og-text));
       transform: translateY(-50%);
     }
@@ -124,6 +128,8 @@
       border: 1px solid var(--border, var(--og-border));
       border-radius: var(--field-radius, var(--og-field-radius));
       background: var(--action-bar-bg, var(--og-action-bar-bg));
+      background-image: var(--nav-texture, var(--og-nav-texture, none));
+      background-blend-mode: soft-light;
       color: var(--text, var(--og-text));
       transform: translateY(-50%);
     }

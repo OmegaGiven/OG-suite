@@ -309,6 +309,7 @@
       mode="suite"
       {suiteNavItems}
       activeSuiteAppId={activeAppId}
+      activeServerUrl={services.serverUrl ?? ''}
       {openTarget}
       onSuiteAppSelect={selectApp}
       onOpenSuiteSettings={() => settingsOpen = true}

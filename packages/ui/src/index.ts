@@ -1,8 +1,18 @@
 import type { BackgroundGradient, CustomFont, DesignTokens } from '@og-suite/contracts'
+import cabinSketchBoldUrl from './assets/fonts/CabinSketch-Bold.ttf'
+import cabinSketchRegularUrl from './assets/fonts/CabinSketch-Regular.ttf'
 
 export const appearanceStorageKey = 'og-suite:appearance'
 export const customFontStorageKey = 'og-suite:custom-fonts'
 export const customFontsChangedEvent = 'og-suite:custom-fonts-changed'
+
+export const texturePresets = {
+  none: 'none',
+  glass:
+    'linear-gradient(132deg, rgb(255 255 255 / 18%) 0%, transparent 18%, rgb(255 255 255 / 8%) 38%, transparent 52%, rgb(255 255 255 / 12%) 74%, transparent 100%), repeating-linear-gradient(118deg, rgb(255 255 255 / 4%) 0 1px, transparent 1px 16px)',
+  paper:
+    'repeating-radial-gradient(circle at 18% 22%, rgb(255 255 255 / 8%) 0 1px, transparent 1px 5px), repeating-linear-gradient(94deg, rgb(70 46 20 / 6%) 0 1px, transparent 1px 9px), linear-gradient(135deg, rgb(255 246 220 / 10%), rgb(110 75 35 / 7%))',
+} as const
 
 export const defaultTokens: DesignTokens = {
   colorBackground: '#09111b',
@@ -24,6 +34,9 @@ export const defaultTokens: DesignTokens = {
   ],
   backgroundImage: '',
   backgroundImageOpacity: 0.35,
+  backgroundTexture: texturePresets.none,
+  panelTexture: texturePresets.none,
+  navTexture: texturePresets.none,
   panelOpacity: 0.84,
   colorSection: 'rgba(22, 32, 45, 0.84)',
   colorPanel: '#0c1724',
@@ -76,6 +89,9 @@ export const lightTokens: DesignTokens = {
   ],
   backgroundImage: '',
   backgroundImageOpacity: 0.35,
+  backgroundTexture: texturePresets.none,
+  panelTexture: texturePresets.none,
+  navTexture: texturePresets.none,
   panelOpacity: 0.88,
   colorSection: 'rgba(255, 255, 255, 0.88)',
   colorPanel: '#ffffff',
@@ -110,11 +126,17 @@ export const lightTokens: DesignTokens = {
 
 export const builtInFontOptions = [
   { label: 'Plex Sans', value: '"IBM Plex Sans", "Segoe UI", system-ui, sans-serif' },
+  { label: 'Cabin Sketch', value: '"Cabin Sketch", "Segoe UI", system-ui, sans-serif' },
   { label: 'System UI', value: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' },
   { label: 'Avenir', value: '"Avenir Next", "Helvetica Neue", sans-serif' },
   { label: 'Serif', value: 'Georgia, "Times New Roman", serif' },
   { label: 'Mono', value: '"IBM Plex Mono", "SFMono-Regular", monospace' },
 ]
+
+const builtInFontFaceCss = [
+  `@font-face{font-family:"Cabin Sketch";src:url("${cabinSketchRegularUrl}") format("truetype");font-style:normal;font-weight:400;font-display:swap;}`,
+  `@font-face{font-family:"Cabin Sketch";src:url("${cabinSketchBoldUrl}") format("truetype");font-style:normal;font-weight:700;font-display:swap;}`,
+].join('\n')
 
 export function loadStoredFonts(storageKey = customFontStorageKey): CustomFont[] {
   if (typeof localStorage === 'undefined') return []
@@ -149,9 +171,10 @@ export function applyStoredFonts(fonts = loadStoredFonts()) {
     style.id = styleId
     document.head.appendChild(style)
   }
-  style.textContent = fonts
-    .map((font) => `@font-face{font-family:"${escapeCssString(font.family)}";src:url("${font.dataUrl}") format("${escapeCssString(font.format)}");font-display:swap;}`)
-    .join('\n')
+  style.textContent = [
+    builtInFontFaceCss,
+    ...fonts.map((font) => `@font-face{font-family:"${escapeCssString(font.family)}";src:url("${font.dataUrl}") format("${escapeCssString(font.format)}");font-display:swap;}`),
+  ].join('\n')
 }
 
 export function normalizeFontFamilyName(name: string) {
@@ -204,6 +227,9 @@ export function normalizeTokens(tokens: Partial<DesignTokens>): DesignTokens {
     backgroundGradients,
     backgroundImage: typeof tokens.backgroundImage === 'string' ? tokens.backgroundImage : defaultTokens.backgroundImage,
     backgroundImageOpacity: clampNumber(tokens.backgroundImageOpacity, 0, 1, defaultTokens.backgroundImageOpacity),
+    backgroundTexture: normalizeTexture(tokens.backgroundTexture, defaultTokens.backgroundTexture),
+    panelTexture: normalizeTexture(tokens.panelTexture, defaultTokens.panelTexture),
+    navTexture: normalizeTexture(tokens.navTexture, defaultTokens.navTexture),
     colorSection: typeof tokens.colorSection === 'string' ? tokens.colorSection : tokens.colorSurface ?? defaultTokens.colorSection,
     colorPanel: typeof tokens.colorPanel === 'string' ? tokens.colorPanel : tokens.colorToolBackground ?? defaultTokens.colorPanel,
     colorToolBackground: typeof tokens.colorToolBackground === 'string' ? tokens.colorToolBackground : defaultTokens.colorToolBackground,
@@ -276,6 +302,9 @@ export function tokensToCss(tokens: DesignTokens): string {
     --og-nav-bg: ${panelNav};
     --og-panel-opacity: ${tokens.panelOpacity};
     --og-background-image-opacity: ${tokens.backgroundImageOpacity};
+    --og-background-texture: ${tokens.backgroundTexture};
+    --og-panel-texture: ${tokens.panelTexture};
+    --og-nav-texture: ${tokens.navTexture};
     --og-shadow: ${tokens.shadow};
     --og-margin: ${tokens.margin}px;
     --og-inner-margin: ${innerMargin}px;
@@ -307,6 +336,9 @@ export function tokensToCss(tokens: DesignTokens): string {
     --app-font-family: ${tokens.fontFamily};
     --bg: ${tokens.colorBackground};
     --bg-gradient: ${tokens.colorBackgroundGradient};
+    --background-texture: ${tokens.backgroundTexture};
+    --panel-texture: ${tokens.panelTexture};
+    --nav-texture: ${tokens.navTexture};
     --text: ${tokens.colorText};
     --muted: ${tokens.colorMuted};
     --surface: ${panelSurface};
@@ -323,6 +355,12 @@ export function tokensToCss(tokens: DesignTokens): string {
     --nav-bg: ${panelNav};
     --shadow: ${tokens.shadow};
   `
+}
+
+function normalizeTexture(value: unknown, fallback: string) {
+  if (typeof value !== 'string') return fallback
+  const trimmed = value.trim()
+  return trimmed || fallback
 }
 
 export function applyTokens(tokens: DesignTokens, root: HTMLElement = document.documentElement) {

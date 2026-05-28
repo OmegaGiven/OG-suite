@@ -247,7 +247,12 @@
         : 'Offline'
   $: tocHeadings = editorRenderMode === 'rich' ? getRichHeadings(richActiveStateVersion) : getMarkdownHeadings(editorText)
   $: isLocalRuntime = services.runtimeMode === 'local'
-  $: activeServerLabel = isLocalRuntime ? 'Local device only' : activeServerUrl || services.serverUrl || 'Remote server'
+  $: activeServerLabel = isLocalRuntime
+    ? 'Local device only'
+    : mode === 'suite'
+      ? activeServerUrl || services.serverUrl || 'Primary Suite server'
+      : activeServerUrl || services.serverUrl || 'Remote server'
+  $: hasServerBackupTargets = mode !== 'suite' && connectedServers.length > 0
   $: syncLogText = buildSyncLogText()
   $: if (status && status !== loggedStatus) {
     loggedStatus = status
@@ -2628,7 +2633,7 @@
         <div class="note-status-grid">
           <div>
             <span>Storage</span>
-            <strong>{isLocalRuntime ? 'Local only' : 'Server backed'}</strong>
+            <strong>{isLocalRuntime ? 'Local only' : mode === 'suite' ? 'Primary server only' : 'Server backed'}</strong>
           </div>
           <div>
             <span>Active server</span>
@@ -2697,10 +2702,20 @@
         </div>
         <div class="note-status-section">
           <div class="note-status-section-title">
-            <strong>Backup targets</strong>
-            <button type="button" on:click={() => onOpenServerManager?.()}>Manage</button>
+            <strong>{mode === 'suite' ? 'Primary server' : 'Backup targets'}</strong>
+            {#if mode !== 'suite'}
+              <button type="button" on:click={() => onOpenServerManager?.()}>Manage</button>
+            {/if}
           </div>
-          {#if connectedServers.length === 0}
+          {#if mode === 'suite'}
+            <p>This browser session reflects the primary server only. Local-device note storage is disabled in Suite mode.</p>
+            <div class="note-status-server-row active">
+              <span>{activeServerLabel}</span>
+              <div>
+                <strong>Active</strong>
+              </div>
+            </div>
+          {:else if connectedServers.length === 0}
             <p>No servers connected. This note is stored on this device until you connect a server.</p>
           {:else}
             {#each connectedServers as server}

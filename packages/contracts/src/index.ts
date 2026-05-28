@@ -307,12 +307,60 @@ export type CreateAudioFolderRequest = {
   path: string
 }
 
+export type DriveFile = {
+  id: string
+  name: string
+  path: string
+  mimeType: string
+  sizeBytes: number
+  ownerId: string
+  workspaceId: string
+  createdAt: IsoDateTime
+  updatedAt: IsoDateTime
+  deletedAt?: IsoDateTime | null
+}
+
+export type DriveFolder = {
+  id: string
+  path: string
+  name: string
+  ownerId: string
+  workspaceId: string
+  createdAt: IsoDateTime
+  updatedAt: IsoDateTime
+  deletedAt?: IsoDateTime | null
+}
+
+export type CreateDriveFileRequest = {
+  name: string
+  path?: string
+  mimeType: string
+  sizeBytes: number
+  dataUrl: string
+}
+
+export type UpdateDriveFileRequest = {
+  name?: string
+  path?: string
+}
+
+export type CreateDriveFolderRequest = {
+  path: string
+}
+
+export type UpdateDriveFolderRequest = {
+  path?: string
+}
+
 export type DesignTokens = {
   colorBackground: string
   colorBackgroundGradient: string
   backgroundGradients: BackgroundGradient[]
   backgroundImage: string
   backgroundImageOpacity: number
+  backgroundTexture: string
+  panelTexture: string
+  navTexture: string
   panelOpacity: number
   colorSection: string
   colorPanel: string

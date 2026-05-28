@@ -1,9 +1,9 @@
 import { chromium } from '@playwright/test'
 import * as Y from 'yjs'
+import { createStressBrowserLaunchOptions } from './lib/stress-browser.mjs'
 
 const appUrl = process.env.OG_STRESS_APP_URL ?? 'http://127.0.0.1:5173/?stress=selection'
 const apiUrl = process.env.OG_STRESS_API_URL ?? 'http://127.0.0.1:8080'
-const bravePath = '/Applications/Brave Browser.app/Contents/MOS/Brave Browser'.replace('/MOS/', '/MacOS/')
 const title = `Selection Stress ${Date.now()}`
 const baseText = 'Alpha beta gamma delta epsilon zeta eta theta iota kappa.\n'
 const peerText = 'Peer inserted text while selection is active.\n'
@@ -19,7 +19,7 @@ if (!noteResponse.ok) {
   throw new Error(`Failed to create selection stress note: ${noteResponse.status} ${await noteResponse.text()}`)
 }
 
-const browser = await chromium.launch({ executablePath: bravePath, headless: true })
+const browser = await chromium.launch(createStressBrowserLaunchOptions())
 
 try {
   const first = await browser.newContext({ viewport: { width: 1280, height: 860 } })

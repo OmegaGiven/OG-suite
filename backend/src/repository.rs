@@ -75,6 +75,25 @@ pub trait SuiteRepository: Send + Sync {
         id: Uuid,
         status: &str,
     ) -> AppResult<AudioRecording>;
+    async fn drive_files(&self) -> AppResult<Vec<DriveFile>>;
+    async fn drive_folders(&self) -> AppResult<Vec<DriveFolder>>;
+    async fn create_drive_folder(&self, request: CreateDriveFolderRequest)
+        -> AppResult<DriveFolder>;
+    async fn update_drive_folder(
+        &self,
+        id: Uuid,
+        request: UpdateDriveFolderRequest,
+    ) -> AppResult<DriveFolder>;
+    async fn delete_drive_folder(&self, id: Uuid) -> AppResult<()>;
+    async fn create_drive_file(&self, request: CreateDriveFileRequest) -> AppResult<DriveFile>;
+    async fn update_drive_file(
+        &self,
+        id: Uuid,
+        request: UpdateDriveFileRequest,
+    ) -> AppResult<DriveFile>;
+    async fn drive_file(&self, id: Uuid) -> AppResult<DriveFile>;
+    async fn drive_asset(&self, id: Uuid) -> AppResult<String>;
+    async fn delete_drive_file(&self, id: Uuid) -> AppResult<()>;
     async fn appearance_themes(
         &self,
         owner_id: &str,
@@ -124,6 +143,9 @@ struct RepositoryData {
     audio_folders: HashMap<Uuid, AudioFolder>,
     audio_assets: HashMap<Uuid, String>,
     audio_transcripts: HashMap<Uuid, AudioTranscript>,
+    drive_files: HashMap<Uuid, DriveFile>,
+    drive_folders: HashMap<Uuid, DriveFolder>,
+    drive_assets: HashMap<Uuid, String>,
     appearance_themes: HashMap<Uuid, AppearanceTheme>,
     appearance_settings: HashMap<(String, String), AppearanceSettings>,
 }
@@ -140,6 +162,9 @@ struct RepositorySnapshot {
     audio_folders: Vec<AudioFolder>,
     audio_assets: Vec<(Uuid, String)>,
     audio_transcripts: Vec<AudioTranscript>,
+    drive_files: Vec<DriveFile>,
+    drive_folders: Vec<DriveFolder>,
+    drive_assets: Vec<(Uuid, String)>,
     appearance_themes: Vec<AppearanceTheme>,
     appearance_settings: Vec<AppearanceSettings>,
 }
@@ -244,11 +269,12 @@ impl InMemoryRepository {
             table(
                 "app_registry",
                 "App Registry",
-                3,
+                4,
                 &["id", "name", "route", "standalone_route", "capabilities"],
                 vec![
                     feed_registry_entry(),
                     notes_registry_entry(),
+                    files_registry_entry(),
                     audio_registry_entry(),
                 ]
                 .into_iter()
@@ -492,6 +518,65 @@ impl InMemoryRepository {
                 transcript_segment_rows,
             ),
             table(
+                "drive_folders",
+                "Drive Folders",
+                data.drive_folders.len(),
+                &[
+                    "id",
+                    "path",
+                    "name",
+                    "owner_id",
+                    "workspace_id",
+                    "created_at",
+                    "updated_at",
+                    "deleted_at",
+                ],
+                data.drive_folders
+                    .values()
+                    .map(|folder| {
+                        serde_json::to_value(folder).unwrap_or_else(|_| serde_json::json!({}))
+                    })
+                    .collect(),
+            ),
+            table(
+                "drive_files",
+                "Drive Files",
+                data.drive_files.len(),
+                &[
+                    "id",
+                    "name",
+                    "path",
+                    "mime_type",
+                    "size_bytes",
+                    "owner_id",
+                    "workspace_id",
+                    "created_at",
+                    "updated_at",
+                    "deleted_at",
+                ],
+                data.drive_files
+                    .values()
+                    .map(|file| {
+                        serde_json::to_value(file).unwrap_or_else(|_| serde_json::json!({}))
+                    })
+                    .collect(),
+            ),
+            table(
+                "drive_assets",
+                "Drive Assets",
+                data.drive_assets.len(),
+                &["file_id", "data_url_bytes"],
+                data.drive_assets
+                    .iter()
+                    .map(|(file_id, data_url)| {
+                        serde_json::json!({
+                            "file_id": file_id,
+                            "data_url_bytes": data_url.len(),
+                        })
+                    })
+                    .collect(),
+            ),
+            table(
                 "appearance_themes",
                 "Appearance Themes",
                 data.appearance_themes.len(),
@@ -557,6 +642,13 @@ impl From<&RepositoryData> for RepositorySnapshot {
                 .map(|(recording_id, data_url)| (*recording_id, data_url.clone()))
                 .collect(),
             audio_transcripts: data.audio_transcripts.values().cloned().collect(),
+            drive_files: data.drive_files.values().cloned().collect(),
+            drive_folders: data.drive_folders.values().cloned().collect(),
+            drive_assets: data
+                .drive_assets
+                .iter()
+                .map(|(file_id, data_url)| (*file_id, data_url.clone()))
+                .collect(),
             appearance_themes: data.appearance_themes.values().cloned().collect(),
             appearance_settings: data.appearance_settings.values().cloned().collect(),
         }
@@ -608,6 +700,17 @@ impl From<RepositorySnapshot> for RepositoryData {
                 .into_iter()
                 .map(|transcript| (transcript.recording_id, transcript))
                 .collect(),
+            drive_files: snapshot
+                .drive_files
+                .into_iter()
+                .map(|file| (file.id, file))
+                .collect(),
+            drive_folders: snapshot
+                .drive_folders
+                .into_iter()
+                .map(|folder| (folder.id, folder))
+                .collect(),
+            drive_assets: snapshot.drive_assets.into_iter().collect(),
             appearance_themes: snapshot
                 .appearance_themes
                 .into_iter()
@@ -656,6 +759,7 @@ impl SuiteRepository for InMemoryRepository {
         Ok(vec![
             feed_registry_entry(),
             notes_registry_entry(),
+            files_registry_entry(),
             audio_registry_entry(),
         ])
     }
@@ -1253,6 +1357,166 @@ impl SuiteRepository for InMemoryRepository {
         Ok(recording)
     }
 
+    async fn drive_files(&self) -> AppResult<Vec<DriveFile>> {
+        let data = self.inner.read().await;
+        let mut files = data
+            .drive_files
+            .values()
+            .filter(|file| file.deleted_at.is_none())
+            .cloned()
+            .collect::<Vec<_>>();
+        files.sort_by(|left, right| right.updated_at.cmp(&left.updated_at));
+        Ok(files)
+    }
+
+    async fn drive_folders(&self) -> AppResult<Vec<DriveFolder>> {
+        let data = self.inner.read().await;
+        let mut folders = data
+            .drive_folders
+            .values()
+            .filter(|folder| folder.deleted_at.is_none())
+            .cloned()
+            .collect::<Vec<_>>();
+        folders.sort_by(|left, right| left.path.cmp(&right.path));
+        Ok(folders)
+    }
+
+    async fn create_drive_folder(
+        &self,
+        request: CreateDriveFolderRequest,
+    ) -> AppResult<DriveFolder> {
+        let path = normalize_folder_path(&request.path);
+        let mut data = self.inner.write().await;
+        if let Some(existing) = data
+            .drive_folders
+            .values()
+            .find(|folder| normalize_folder_path(&folder.path) == path && folder.deleted_at.is_none())
+            .cloned()
+        {
+            return Ok(existing);
+        }
+        let now = Utc::now();
+        let folder = DriveFolder {
+            id: Uuid::new_v4(),
+            name: folder_name(&path),
+            path,
+            owner_id: "local-user".to_string(),
+            workspace_id: "default".to_string(),
+            created_at: now,
+            updated_at: now,
+            deleted_at: None,
+        };
+        data.drive_folders.insert(folder.id, folder.clone());
+        self.persist_snapshot(&data)?;
+        Ok(folder)
+    }
+
+    async fn update_drive_folder(
+        &self,
+        id: Uuid,
+        request: UpdateDriveFolderRequest,
+    ) -> AppResult<DriveFolder> {
+        let mut data = self.inner.write().await;
+        let folder = data
+            .drive_folders
+            .get_mut(&id)
+            .filter(|folder| folder.deleted_at.is_none())
+            .ok_or(crate::error::AppError::NotFound)?;
+        if let Some(path) = request.path {
+            let next_path = normalize_folder_path(&path);
+            folder.path = next_path.clone();
+            folder.name = folder_name(&next_path);
+        }
+        folder.updated_at = Utc::now();
+        let folder = folder.clone();
+        self.persist_snapshot(&data)?;
+        Ok(folder)
+    }
+
+    async fn delete_drive_folder(&self, id: Uuid) -> AppResult<()> {
+        let mut data = self.inner.write().await;
+        let deleted_at = Utc::now();
+        if let Some(folder) = data.drive_folders.get_mut(&id) {
+            folder.deleted_at = Some(deleted_at);
+            folder.updated_at = deleted_at;
+        }
+        self.persist_snapshot(&data)?;
+        Ok(())
+    }
+
+    async fn create_drive_file(&self, request: CreateDriveFileRequest) -> AppResult<DriveFile> {
+        let now = Utc::now();
+        let file = DriveFile {
+            id: Uuid::new_v4(),
+            name: request.name,
+            path: normalize_folder_path(&request.path),
+            mime_type: request.mime_type,
+            size_bytes: request.size_bytes,
+            owner_id: "local-user".to_string(),
+            workspace_id: "default".to_string(),
+            created_at: now,
+            updated_at: now,
+            deleted_at: None,
+        };
+        let mut data = self.inner.write().await;
+        data.drive_assets.insert(file.id, request.data_url);
+        data.drive_files.insert(file.id, file.clone());
+        self.persist_snapshot(&data)?;
+        Ok(file)
+    }
+
+    async fn update_drive_file(
+        &self,
+        id: Uuid,
+        request: UpdateDriveFileRequest,
+    ) -> AppResult<DriveFile> {
+        let mut data = self.inner.write().await;
+        let file = data
+            .drive_files
+            .get_mut(&id)
+            .filter(|file| file.deleted_at.is_none())
+            .ok_or(crate::error::AppError::NotFound)?;
+        if let Some(name) = request.name {
+            file.name = name;
+        }
+        if let Some(path) = request.path {
+            file.path = normalize_folder_path(&path);
+        }
+        file.updated_at = Utc::now();
+        let file = file.clone();
+        self.persist_snapshot(&data)?;
+        Ok(file)
+    }
+
+    async fn drive_file(&self, id: Uuid) -> AppResult<DriveFile> {
+        let data = self.inner.read().await;
+        data.drive_files
+            .get(&id)
+            .cloned()
+            .filter(|file| file.deleted_at.is_none())
+            .ok_or(crate::error::AppError::NotFound)
+    }
+
+    async fn drive_asset(&self, id: Uuid) -> AppResult<String> {
+        let data = self.inner.read().await;
+        data.drive_assets
+            .get(&id)
+            .cloned()
+            .ok_or(crate::error::AppError::NotFound)
+    }
+
+    async fn delete_drive_file(&self, id: Uuid) -> AppResult<()> {
+        let mut data = self.inner.write().await;
+        let deleted_at = Utc::now();
+        if let Some(file) = data.drive_files.get_mut(&id) {
+            file.deleted_at = Some(deleted_at);
+            file.updated_at = deleted_at;
+        }
+        data.drive_assets.remove(&id);
+        self.persist_snapshot(&data)?;
+        Ok(())
+    }
+
     async fn appearance_themes(
         &self,
         owner_id: &str,
@@ -1432,6 +1696,16 @@ fn notes_registry_entry() -> AppRegistryEntry {
             AppCapability::RemoteSave,
             AppCapability::Collaboration,
         ],
+    }
+}
+
+fn files_registry_entry() -> AppRegistryEntry {
+    AppRegistryEntry {
+        id: "files".to_string(),
+        name: "Files".to_string(),
+        route: "/files".to_string(),
+        standalone_route: "/files".to_string(),
+        capabilities: vec![AppCapability::Files, AppCapability::RemoteSave],
     }
 }
 

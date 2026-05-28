@@ -2,8 +2,9 @@
   font-family: var(--app-font-family, var(--og-font, system-ui, sans-serif));
   color: var(--text, var(--og-text));
   background-color: var(--bg, var(--og-bg));
-  background-image: var(--bg-gradient, var(--og-bg-gradient));
+  background-image: var(--background-texture, var(--og-background-texture, none)), var(--bg-gradient, var(--og-bg-gradient));
   background-attachment: fixed;
+  background-blend-mode: soft-light, normal;
   color-scheme: dark;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -20,8 +21,9 @@ body {
   min-width: 320px;
   min-height: 100vh;
   background-color: var(--bg, var(--og-bg));
-  background-image: var(--bg-gradient, var(--og-bg-gradient));
+  background-image: var(--background-texture, var(--og-background-texture, none)), var(--bg-gradient, var(--og-bg-gradient));
   background-attachment: fixed;
+  background-blend-mode: soft-light, normal;
   background-position: center;
   background-size: cover;
 }
@@ -392,6 +394,8 @@ button:has(.og-icon) {
   border: 1px solid var(--border, var(--og-border));
   border-radius: var(--panel-radius, var(--og-radius));
   background: var(--panel-surface, var(--og-surface));
+  background-image: var(--panel-texture, var(--og-panel-texture, none));
+  background-blend-mode: soft-light;
   backdrop-filter: blur(14px);
   box-shadow: var(--shadow, var(--og-shadow));
   overflow: hidden;
@@ -788,6 +792,13 @@ footer {
   height: 100vh;
   max-height: 100vh;
   overflow: hidden;
+}
+
+.editor-shell,
+.note-title-panel,
+.settings-drawer {
+  background-image: var(--panel-texture, var(--og-panel-texture, none));
+  background-blend-mode: soft-light;
 }
 
 .metadata {
@@ -1762,6 +1773,8 @@ footer {
   border: 1px solid var(--border, var(--og-border));
   border-radius: var(--panel-radius, var(--og-radius));
   background: color-mix(in srgb, var(--nav-bg) 96%, var(--surface) 4%);
+  background-image: var(--panel-texture, var(--og-panel-texture, none));
+  background-blend-mode: soft-light;
   color: var(--text, var(--og-text));
   box-shadow: var(--shadow, var(--og-shadow));
   backdrop-filter: blur(16px);
@@ -1805,6 +1818,8 @@ footer {
   border: 1px solid var(--border, var(--og-border));
   border-radius: var(--field-radius, var(--og-field-radius));
   background: var(--action-bar-bg, var(--og-action-bar-bg));
+  background-image: var(--nav-texture, var(--og-nav-texture, none));
+  background-blend-mode: soft-light;
   color: var(--text, var(--og-text));
 }
 
@@ -1849,6 +1864,8 @@ footer {
   border: 1px solid var(--border, var(--og-border));
   border-radius: var(--field-radius, var(--og-field-radius));
   background: color-mix(in srgb, var(--nav-bg) 94%, transparent);
+  background-image: var(--nav-texture, var(--og-nav-texture, none));
+  background-blend-mode: soft-light;
   backdrop-filter: blur(14px);
 }
 
@@ -1882,6 +1899,8 @@ footer {
   border: 1px solid var(--border, var(--og-border));
   border-radius: var(--panel-radius, var(--og-radius));
   background: var(--panel-surface-subtle, var(--og-surface-subtle));
+  background-image: var(--panel-texture, var(--og-panel-texture, none));
+  background-blend-mode: soft-light;
 }
 
 .settings-section-header h3 {
@@ -2101,6 +2120,34 @@ footer {
   background-size: cover;
 }
 
+.texture-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-sm, 8px);
+}
+
+.texture-control {
+  display: grid;
+  gap: var(--space-sm, 8px);
+  min-width: 0;
+  padding: var(--space-sm, 8px);
+  border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+  border-radius: var(--field-radius, var(--og-field-radius));
+  background: color-mix(in srgb, var(--surface-strong) 42%, transparent);
+  background-image: var(--panel-texture, var(--og-panel-texture, none));
+  background-blend-mode: soft-light;
+}
+
+.texture-preview {
+  min-height: 68px;
+  border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+  border-radius: var(--field-radius, var(--og-field-radius));
+  background-color: var(--panel-surface, var(--og-surface));
+  background-size: cover;
+  background-position: center;
+  background-blend-mode: soft-light;
+}
+
 .settings-actions .primary {
   background: var(--accent, var(--og-accent));
   color: var(--accent-contrast, var(--og-accent-contrast));
@@ -2119,6 +2166,10 @@ footer {
     padding: max(10px, env(safe-area-inset-top)) 10px calc(10px + env(safe-area-inset-bottom));
     border: 0;
     border-radius: 0;
+  }
+
+  .texture-grid {
+    grid-template-columns: 1fr;
   }
 
   .settings-drawer-header {

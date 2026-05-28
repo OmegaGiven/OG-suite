@@ -592,6 +592,8 @@
     border: 1px solid var(--border, var(--og-border));
     border-radius: var(--panel-radius, var(--og-radius));
     background: var(--panel-surface, var(--og-surface));
+    background-image: var(--panel-texture, var(--og-panel-texture, none));
+    background-blend-mode: soft-light;
     box-shadow: var(--shadow, var(--og-shadow));
     backdrop-filter: blur(16px);
     box-sizing: border-box;
@@ -688,6 +690,8 @@
     border: 1px solid var(--border, var(--og-border));
     border-radius: var(--panel-radius, var(--og-radius));
     background: var(--panel-surface, var(--og-surface));
+    background-image: var(--panel-texture, var(--og-panel-texture, none));
+    background-blend-mode: soft-light;
     box-shadow: var(--shadow, var(--og-shadow));
     backdrop-filter: blur(16px);
   }
@@ -741,6 +745,8 @@
     border: 1px solid var(--border, var(--og-border));
     border-radius: var(--panel-radius, var(--og-radius));
     background: var(--panel-surface, var(--og-surface));
+    background-image: var(--panel-texture, var(--og-panel-texture, none));
+    background-blend-mode: soft-light;
     box-shadow: var(--shadow, var(--og-shadow));
     backdrop-filter: blur(16px);
   }
@@ -842,6 +848,8 @@
     border: 1px solid var(--border, var(--og-border));
     border-radius: var(--panel-radius, var(--og-radius));
     background: var(--panel-surface, var(--og-surface));
+    background-image: var(--panel-texture, var(--og-panel-texture, none));
+    background-blend-mode: soft-light;
     box-shadow: var(--shadow, var(--og-shadow));
     transform: translate(-50%, -50%);
   }
@@ -902,6 +910,8 @@
     border: 1px solid var(--border, var(--og-border));
     border-radius: var(--panel-radius, var(--og-radius));
     background: var(--panel-surface, var(--og-surface));
+    background-image: var(--panel-texture, var(--og-panel-texture, none));
+    background-blend-mode: soft-light;
     box-shadow: var(--shadow, var(--og-shadow));
     backdrop-filter: blur(16px);
   }

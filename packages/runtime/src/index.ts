@@ -171,6 +171,18 @@ export function createBrowserLocalCache(key = 'og-suite:workspace'): LocalCache 
   }
 }
 
+export function createMemoryLocalCache(initialEnvelope: SyncEnvelope | null = null): LocalCache {
+  let envelope = initialEnvelope
+  return {
+    async loadEnvelope() {
+      return envelope
+    },
+    async saveEnvelope(nextEnvelope) {
+      envelope = nextEnvelope
+    },
+  }
+}
+
 export function createBrowserSyncQueue(key = 'og-suite:sync-queue'): SyncQueue {
   function load(): QueuedOperation[] {
     const raw = localStorage.getItem(key)
@@ -195,6 +207,28 @@ export function createBrowserSyncQueue(key = 'og-suite:sync-queue'): SyncQueue {
     async remove(ids) {
       const idSet = new Set(ids)
       save(load().filter((item) => !idSet.has(item.id)))
+    },
+  }
+}
+
+export function createMemorySyncQueue(initialItems: QueuedOperation[] = []): SyncQueue {
+  let items = [...initialItems]
+  return {
+    async list() {
+      return [...items]
+    },
+    async enqueue(operation) {
+      const queued = {
+        id: createRuntimeId('queue'),
+        operation,
+        createdAt: new Date().toISOString(),
+      }
+      items = [...items, queued]
+      return queued
+    },
+    async remove(ids) {
+      const idSet = new Set(ids)
+      items = items.filter((item) => !idSet.has(item.id))
     },
   }
 }

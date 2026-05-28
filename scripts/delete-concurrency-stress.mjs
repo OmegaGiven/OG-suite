@@ -1,8 +1,8 @@
 import { chromium } from '@playwright/test'
+import { createStressBrowserLaunchOptions } from './lib/stress-browser.mjs'
 
 const appUrl = process.env.OG_STRESS_APP_URL ?? 'http://localhost:5173/?stress=delete'
 const apiUrl = process.env.OG_STRESS_API_URL ?? 'http://127.0.0.1:8080'
-const bravePath = '/Applications/Brave Browser.app/Contents/MacOS/Brave Browser'
 const title = `Delete Stress ${Date.now()}`
 const initialText = [
   'alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu',
@@ -12,7 +12,7 @@ const initialText = [
 
 const session = await getStressSession()
 const note = await createStressNote()
-const browser = await chromium.launch({ executablePath: bravePath, headless: true })
+const browser = await chromium.launch(createStressBrowserLaunchOptions())
 
 try {
   const desktop = await browser.newContext({ viewport: { width: 1280, height: 860 } })
